@@ -1,0 +1,103 @@
+[36m[orch][0m [1mℹ[0m orch.json ← /Users/sasha_pshonko/Documents/4narek/4narek-azalea/orch.json
+[36m[orch][0m [1mℹ[0m анка 502 · farm=/Users/sasha_pshonko/Documents/4narek/4narek-azalea · go=ws://127.0.0.1:8080/ws · local_mode=true
+[36m[orch][0m [1mℹ[0m bot=/Users/sasha_pshonko/Documents/4narek/4narek-azalea/target/debug/bot502
+[36m[orch][0m [1mℹ[0m bots.json: 3 ботов
+[36m[orch][0m [1mℹ[0m clan-owners → 8 анк
+[36m[orch][0m [1mℹ[0m Go WS → ws://127.0.0.1:8080/ws
+[36m[orch][0m [1mℹ[0m Go WS open
+[36m[orch][0m [33m⚡[0m presence → active_types=[] при live=0 (Go поставит adjustPrice на паузу)
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[36m[sypuchijChaj][0m [1mℹ[0m spawn
+[36m[sypuchijChaj][0m [1mℹ[0m старт · an502 · netherite sword
+[36m[orch][0m [1mℹ[0m orch.json ← /Users/sasha_pshonko/Documents/4narek/4narek-azalea/orch.json
+[36m[orch][0m [1mℹ[0m анка 502 · farm=/Users/sasha_pshonko/Documents/4narek/4narek-azalea · go=ws://127.0.0.1:8080/ws · local_mode=true
+[36m[orch][0m [1mℹ[0m bot=/Users/sasha_pshonko/Documents/4narek/4narek-azalea/target/debug/bot502
+[36m[orch][0m [1mℹ[0m bots.json: 3 ботов
+[36m[orch][0m [1mℹ[0m clan-owners → 8 анк
+[36m[orch][0m [1mℹ[0m Go WS → ws://127.0.0.1:8080/ws
+[36m[orch][0m [1mℹ[0m Go WS open
+[36m[orch][0m [33m⚡[0m presence → active_types=[] при live=0 (Go поставит adjustPrice на паузу)
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[36m[listokNaVode][0m [1mℹ[0m spawn
+[36m[listokNaVode][0m [1mℹ[0m старт · an502 · netherite sword
+[2m[36m[listokNaVode][0m[2m 💬 [✾] Успешная авторизация! Приятной игры![0m
+[36m[listokNaVode][0m [1mℹ[0m логин → /reg + /l
+[36m[listokNaVode][0m [1mℹ[0m → /reg ggggg
+[36m[listokNaVode][0m [1mℹ[0m → /l ggggg
+[2m[36m[listokNaVode][0m[2m 💬  ╔═════ ★ FunTime.su ★ ═══╗[0m
+[2m[36m[listokNaVode][0m[2m 💬  ║[0m
+[2m[36m[listokNaVode][0m[2m 💬  ║ Добро пожаловать на FunTime[0m
+[2m[36m[listokNaVode][0m[2m 💬  ║ Наши социальные сети – /links[0m
+[2m[36m[listokNaVode][0m[2m 💬  ║ Приятной игры и новых побед![0m
+[2m[36m[listokNaVode][0m[2m 💬  ║[0m
+[2m[36m[listokNaVode][0m[2m 💬  ╚═══════════════════╝[0m
+[2m[36m[listokNaVode][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[2m[36m[listokNaVode][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[36m[listokNaVode][0m [1mℹ[0m /an502… (жду scoreboard)
+[36m[listokNaVode][0m [1mℹ[0m → /an502
+[36m[tikhijUtyugX][0m [1mℹ[0m spawn
+[36m[listokNaVode][0m [1mℹ[0m анархия 502 — вход
+[36m[tikhijUtyugX][0m [1mℹ[0m старт · an502 · netherite sword
+[36m[listokNaVode][0m [32m✓[0m на анархии → success
+[36m[orch][0m [1mℹ[0m presence → active_types=["netherite_sword-1.21"]
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[2m[36m[tikhijUtyugX][0m[2m 💬 [✾] Успешная авторизация! Приятной игры![0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ╔═════ ★ FunTime.su ★ ═══╗[0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ║[0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ║ Добро пожаловать на FunTime[0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ║ Наши социальные сети – /links[0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ║ Приятной игры и новых побед![0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ║[0m
+[2m[36m[tikhijUtyugX][0m[2m 💬  ╚═══════════════════╝[0m
+[36m[tikhijUtyugX][0m [1mℹ[0m логин → /reg + /l
+[36m[tikhijUtyugX][0m [1mℹ[0m → /reg ggggg
+[36m[tikhijUtyugX][0m [1mℹ[0m → /l ggggg
+[36m[listokNaVode][0m [1mℹ[0m анка → scoreboard an502 ок
+[36m[listokNaVode][0m [1mℹ[0m анка → пауза 10с
+[2m[36m[tikhijUtyugX][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[2m[36m[tikhijUtyugX][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[36m[tikhijUtyugX][0m [1mℹ[0m /an502… (жду scoreboard)
+[36m[tikhijUtyugX][0m [1mℹ[0m → /an502
+[36m[tikhijUtyugX][0m [1mℹ[0m анархия 502 — вход
+[36m[tikhijUtyugX][0m [32m✓[0m на анархии → success
+[36m[orch][0m [1mℹ[0m presence → active_types=["netherite_sword-1.21"]
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге
+[36m[sypuchijChaj][0m [1mℹ[0m spawn
+[36m[sypuchijChaj][0m [1mℹ[0m старт · an502 · netherite sword
+[36m[tikhijUtyugX][0m [1mℹ[0m анка → scoreboard an502 ок
+[36m[tikhijUtyugX][0m [1mℹ[0m анка → пауза 11с
+[2m[36m[sypuchijChaj][0m[2m 💬 [✾] Успешная авторизация! Приятной игры![0m
+[36m[sypuchijChaj][0m [1mℹ[0m логин → /reg + /l
+[36m[sypuchijChaj][0m [1mℹ[0m → /reg ggggg
+[36m[sypuchijChaj][0m [1mℹ[0m → /l ggggg
+[2m[36m[sypuchijChaj][0m[2m 💬  ╔═════ ★ FunTime.su ★ ═══╗[0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ║[0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ║ Добро пожаловать на FunTime[0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ║ Наши социальные сети – /links[0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ║ Приятной игры и новых побед![0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ║[0m
+[2m[36m[sypuchijChaj][0m[2m 💬  ╚═══════════════════╝[0m
+[2m[36m[sypuchijChaj][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[2m[36m[sypuchijChaj][0m[2m 💬 [✾] Вы уже авторизованы, вводить пароль не нужно![0m
+[36m[sypuchijChaj][0m [1mℹ[0m /an502… (жду scoreboard)
+[36m[sypuchijChaj][0m [1mℹ[0m → /an502
+[36m[listokNaVode][0m [1mℹ[0m /clan info…
+[36m[listokNaVode][0m [1mℹ[0m → /clan info
+[2m[36m[listokNaVode][0m[2m 💬 #"bzk7c" #378[0m
+[2m[36m[listokNaVode][0m[2m 💬 Уровень: 11[0m
+[2m[36m[listokNaVode][0m[2m 💬 Лидер: lugPodRosoy[0m
+[2m[36m[listokNaVode][0m[2m 💬 Баланс: 24,446,274[0m
+[36m[listokNaVode][0m [32m✓[0m баланс 24.4kk
+[2m[36m[listokNaVode][0m[2m 💬 Уровень: 22664XP[0m
+[2m[36m[listokNaVode][0m[2m 💬 Участники: [Лидер]lugPodRosoy, [Участник]nebotovodt4n9, [Участник]tikhijUtyugX, [Участник]sypuchijChaj, [Участник]listokNaVode[0m
+[36m[listokNaVode][0m [1mℹ[0m клан лидер lugPodRosoy (ожидаем lugPodRosoy)
+[36m[listokNaVode][0m [1mℹ[0m цикл АХ · netherite sword
+[36m[listokNaVode][0m [1mℹ[0m → /balance
+[2m[36m[listokNaVode][0m[2m 💬 [$] Ваш баланс: $6,092,208[0m
+[36m[listokNaVode][0m [32m✓[0m баланс 6.1kk
+[36m[sypuchijChaj][0m [1mℹ[0m анархия 502 — вход
+[36m[sypuchijChaj][0m [32m✓[0m на анархии → success
+[36m[orch][0m [1mℹ[0m presence → active_types=["netherite_sword-1.21"]
+[36m[orch][0m [1mℹ[0m Go prices → 20 позиций в каталоге

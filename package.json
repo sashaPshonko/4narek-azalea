@@ -1,0 +1,15 @@
+{
+  "name": "4narek-azalea",
+  "private": true,
+  "dependencies": {
+    "flayercaptcha": "^1.0.6",
+    "mineflayer": "^4.37.1",
+    "pngjs": "^7.0.0",
+    "socks": "^2.8.9",
+    "socks-proxy-agent": "^10.1.0",
+    "vec3": "^0.1.10"
+  },
+  "scripts": {
+    "postinstall": "node scripts/apply-vanilla-engine-patches.mjs"
+  }
+}

@@ -1,0 +1,29 @@
+[package]
+name = "bot"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "bot502"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+azalea = { workspace = true }
+azalea-inventory = { workspace = true }
+ipc = { path = "../ipc" }
+parking_lot = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+socks5-impl = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "io-util", "io-std", "sync", "process"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = "2"
+regex = "1"
+rand = "0.8"
+simdnbt = "0.9"
+azalea-chat = "=0.15.1"
+azalea-registry = "=0.15.1"
+base64 = "0.22"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
