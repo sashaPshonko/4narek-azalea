@@ -15,7 +15,7 @@ use crate::delay;
 use crate::state::BotState;
 
 /// Первые N мс после старта воркера ⚡-рекламу хаба игнорим (как LOBBY_IGNORE_MS).
-pub const LOBBY_IGNORE: Duration = Duration::from_secs(60);
+pub const LOBBY_IGNORE: Duration = Duration::from_secs(15);
 
 /// FunTime ⚡-рассылки хаба (майская логика: → сброс анки → снова /an).
 const LOBBY_BROADCAST_MARKERS: &[&str] = &[
@@ -25,6 +25,11 @@ const LOBBY_BROADCAST_MARKERS: &[&str] = &[
     "⚡ Наш Сайт FunTime.su",
     "⚡ Наши сообщества и соц. сети /links",
     "⚡ Вы играете на FunTime! play.funtime.su",
+    // Новые маркеры (октябрь 2026) - сервер изменил формат
+    "★ FunTime.su ★",
+    "Добро пожаловать на FunTime",
+    "Наши социальные сети – /links",
+    "Приятной игры и новых побед",
 ];
 
 /// `bot.position()` паникует во время transfer — только Option.
@@ -37,7 +42,8 @@ pub fn try_pos(bot: &Client) -> Option<Vec3> {
 }
 
 pub fn is_lobby_broadcast(text: &str) -> bool {
-    LOBBY_BROADCAST_MARKERS.iter().any(|m| text.contains(m))
+    let is_match = LOBBY_BROADCAST_MARKERS.iter().any(|m| text.contains(m));
+    is_match
 }
 
 /// ⚡-реклама хаба → сброс on_anarchy (цикл АХ сам шлёт /an).
@@ -67,59 +73,48 @@ pub async fn wait_until_on_anarchy(
     if state.lock().banned || state.lock().shutdown {
         return false;
     }
+
     if state.lock().on_anarchy {
         settle_after_join(state).await;
         return !state.lock().banned;
     }
 
     let deadline = Instant::now() + Duration::from_secs(90);
+
     while Instant::now() < deadline {
         if state.lock().banned || state.lock().shutdown {
             return false;
         }
+
         if state.lock().on_anarchy {
             info!("анка → scoreboard an{} ок", boot.anarchy);
             settle_after_join(state).await;
             return !state.lock().banned;
         }
-        info!("/an{}… (жду scoreboard)", boot.anarchy);
-        let sent_at = Instant::now();
+
         crate::cmd::say(bot, format!("/an{}", boot.anarchy));
-        delay::rnd("ANARCHY_DELAY").await;
-        let slice = Instant::now() + Duration::from_secs(14);
-        let mut high_y_since: Option<Instant> = None;
-        while Instant::now() < slice {
+        info!("/an{} → жду scoreboard", boot.anarchy);
+
+        // Ждём scoreboard максимум 3 секунды.
+        // Если не пришёл — снова отправляем /an.
+        let retry_at = Instant::now() + Duration::from_secs(3);
+
+        while Instant::now() < retry_at {
             if state.lock().banned || state.lock().shutdown {
                 return false;
             }
+
             if state.lock().on_anarchy {
                 info!("анка → scoreboard an{} ок", boot.anarchy);
                 settle_after_join(state).await;
                 return !state.lock().banned;
             }
-            // Azalea часто роняет set_objective — запас: стабильный y после /an.
-            match try_y(bot) {
-                Some(y) if sent_at.elapsed() > Duration::from_secs(3) && y >= 20.0 => {
-                    match high_y_since {
-                        None => high_y_since = Some(Instant::now()),
-                        Some(t) if t.elapsed() >= Duration::from_secs(3) => {
-                            warn!(
-                                "анка → scoreboard молчит, y={y:.0} после /an{} — считаю вход",
-                                boot.anarchy
-                            );
-                            mark_anarchy_joined(boot, state, Some(y));
-                            settle_after_join(state).await;
-                            return !state.lock().banned;
-                        }
-                        _ => {}
-                    }
-                }
-                _ => high_y_since = None,
-            }
+
             delay::rnd("POLL").await;
         }
     }
-    warn!("анка → за 90с нет входа на an{}", boot.anarchy);
+
+    warn!("анка → за 90с нет scoreboard an{}", boot.anarchy);
     false
 }
 
@@ -143,27 +138,29 @@ pub fn scoreboard_mentions_anarchy(blob: &str, anarchy: u16) -> bool {
     blob.contains(&anarchy.to_string())
 }
 
-pub fn mark_anarchy_joined(boot: &BotBoot, state: &Arc<Mutex<BotState>>, y: Option<f64>) {
+pub fn mark_anarchy_joined(
+    boot: &BotBoot,
+    state: &Arc<Mutex<BotState>>,
+) {
     if state.lock().banned {
         return;
     }
-    if let Some(y) = y {
-        if y < 15.0 {
-            tracing::debug!(
-                "scoreboard an{} при y={y:.1} (transfer) — всё равно mark",
-                boot.anarchy
-            );
-        }
-    }
+
     let mut st = state.lock();
+
     st.last_anarchy_board_at = Some(Instant::now());
+
     if st.on_anarchy {
         return;
     }
+
     st.on_anarchy = true;
     st.anarchy_joined_at = Some(Instant::now());
+
     drop(st);
-    info!("анархия {} — вход", boot.anarchy);
+
+    info!("анархия {} — scoreboard подтверждён", boot.anarchy);
+
     emit(&WorkerMsg {
         name: "success".into(),
         username: Some(boot.username.clone()),

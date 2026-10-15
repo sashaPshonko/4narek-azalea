@@ -99,10 +99,10 @@ impl ClanSetupGate {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         // launch-gate / Go HTTP: локально как LOCAL_MODE у JS-орка
+        cmd.env("GO_HTTP_URL", "http://127.0.0.1:8080");
         if self.local_mode {
             cmd.env("LOCAL_MODE", "1");
             cmd.env("FLEET_LAUNCH_BYPASS", "1");
-            cmd.env("GO_HTTP_URL", "http://127.0.0.1:8080");
         }
 
         let mut child = match cmd.spawn() {

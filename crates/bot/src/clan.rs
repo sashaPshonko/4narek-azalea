@@ -46,7 +46,11 @@ pub fn save_sum(_boot: &BotBoot, state: &BotState) -> Option<f64> {
     Some((prices[0] + prices[1]).floor())
 }
 
-pub async fn after_sell_balance(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>>) {
+pub async fn after_sell_balance(
+    bot: &Client,
+    boot: &BotBoot,
+    state: &Arc<Mutex<BotState>>,
+) {
     crate::cmd::say(bot, "/balance");
     delay::rnd("BASE_DELAY").await;
 
@@ -54,19 +58,23 @@ pub async fn after_sell_balance(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<
         let s = state.lock();
         (s.balance, save_sum(boot, &s))
     };
+
     let Some(bal) = balance else {
         warn!("clan → баланс неизвестен");
         return;
     };
+
     let Some(keep) = keep else {
         return;
     };
 
     if bal > keep {
         let invest = bal - keep;
+
         if invest > CLAN_INVEST_MIN {
             let ok_cd = {
                 let mut s = state.lock();
+
                 if s.last_clan_invest
                     .map(|t| t.elapsed() >= CLAN_INVEST_COOLDOWN)
                     .unwrap_or(true)
@@ -77,24 +85,37 @@ pub async fn after_sell_balance(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<
                     false
                 }
             };
+
             if ok_cd {
                 let sum = invest.floor() as i64;
+
                 info!(
                     "клан → вложил {} (keep {})",
                     crate::money::money(invest),
                     crate::money::money(keep)
                 );
+
                 crate::cmd::say(bot, format!("/clan invest {sum}"));
                 delay::rnd("BASE_DELAY").await;
             }
         }
-    } else if bal < keep / 2.0 {
-        let want = ((keep / 2.0) - bal).floor() as i64;
+    } else if bal < keep {
+        let want = (keep - bal).floor() as i64;
+
         if want > 0 {
-            info!("клан → снял {}", crate::money::money(want as f64));
+            info!(
+                "клан → снял {} (баланс {}, keep {})",
+                crate::money::money(want as f64),
+                crate::money::money(bal),
+                crate::money::money(keep)
+            );
+
             state.lock().awaiting_withdraw = true;
+
             crate::cmd::say(bot, format!("/clan withdraw {want}"));
+
             delay::rnd("BASE_DELAY").await;
+
             state.lock().awaiting_withdraw = false;
         }
     }

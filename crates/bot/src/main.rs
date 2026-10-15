@@ -298,7 +298,7 @@ fn maybe_scoreboard_anarchy(bot: &Client, blob: &str, objective_level: bool) {
     let g = boot::global();
     let an = g.boot.anarchy;
     if anarchy::scoreboard_mentions_anarchy(blob, an) {
-        anarchy::mark_anarchy_joined(&g.boot, &g.state, anarchy::try_y(bot));
+        anarchy::mark_anarchy_joined(&g.boot, &g.state);
         return;
     }
     // уход в хаб: objective/display без номера анки
@@ -349,16 +349,6 @@ fn handle_chat(bot: &Client, text: &str) {
             ..empty_msg()
         });
         return;
-    }
-
-    // запасной сигнал анки из чата (scoreboard Azalea часто дропает).
-    // Бан-кик «Anarchy502» тоже содержит anarchy+номер — не mark.
-    if !low.contains("забанен")
-        && !low.contains("banned")
-        && anarchy::scoreboard_mentions_anarchy(text, g.boot.anarchy)
-        && (low.contains("анк") || low.contains("anarchy") || low.contains("/an"))
-    {
-        anarchy::mark_anarchy_joined(&g.boot, &g.state, anarchy::try_y(bot));
     }
 
     // май: ⚡ FunTime-реклама хаба → сброс анки → цикл снова /an
@@ -537,9 +527,26 @@ fn handle_chat(bot: &Client, text: &str) {
             Some(std::time::Instant::now() + Duration::from_secs(sec + 1));
         warn!("хранилище → CD перестановки {sec}с");
     } else if text.contains("[✔] Предметы успешно перевыставлены!") {
-        let mut st = g.state.lock();
-        st.last_storage_reset = std::time::Instant::now();
-        st.need_reset = false;
+        let metas: Vec<listing::ListingMeta> = {
+            let mut st = g.state.lock();
+            st.last_storage_reset = std::time::Instant::now();
+            st.need_reset = false;
+            st.listings.all_metas()
+        };
+        if metas.is_empty() {
+            warn!("storage reset: память пуста — try-sell слать нечего");
+        } else {
+            info!("storage reset: try-sell на {} предмет(ов)", metas.len());
+            for meta in metas {
+                emit(&WorkerMsg {
+                    name: "try-sell".into(),
+                    username: Some(user.clone()),
+                    id: Some(meta.catalog_id),
+                    price: Some(meta.price),
+                    ..empty_msg()
+                });
+            }
+        }
     } else if text.contains("[☃] Вы успешно купили") {
         let from_chat = parse_chat_price(text);
         let mut st = g.state.lock();
@@ -652,9 +659,7 @@ fn handle_chat(bot: &Client, text: &str) {
             }
             g.state.lock().sell_ack = state::SellAck::Ok;
         }
-    } else if text.contains("Вы успешно выставили")
-        || text.contains("выставлен на аукцион")
-        || (text.contains("[☃] Предмет") && (low.contains("выстав") || low.contains("продаж")))
+    } else if text.contains("[☃] Предмет") && (low.contains("выстав") || low.contains("продаж"))
     {
         g.state.lock().sell_ack = state::SellAck::Ok;
     } else if text.contains("[⚔] Ошибка: Баланс казны меньше") {
@@ -679,6 +684,24 @@ fn handle_chat(bot: &Client, text: &str) {
             balance: Some(bal),
             ..empty_msg()
         });
+    } else if text.contains("[⚔] Помощь по Кланам:") {
+        let awaiting_withdraw = g.state.lock().awaiting_withdraw;
+    
+        if awaiting_withdraw {
+            info!("клан → /clan withdraw не принят → запускаю clan_setup");
+    
+            g.state.lock().awaiting_withdraw = false;
+    
+            emit(&WorkerMsg {
+                name: "clan_setup".into(),
+                username: Some(user.clone()),
+                reason: Some("withdraw_help".into()),
+                data: Some(json!({
+                    "anarchy": g.boot.anarchy,
+                })),
+                ..empty_msg()
+            });
+        }
     }
 }
 

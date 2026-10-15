@@ -116,6 +116,10 @@ impl ListingMemory {
         self.memory.get(&(listing_id % 10))
     }
 
+    pub fn all_metas(&self) -> Vec<ListingMeta> {
+        self.memory.values().cloned().collect()
+    }
+
     pub fn export_state(&self) -> Value {
         let listings: Vec<Value> = self
             .memory

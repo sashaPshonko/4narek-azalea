@@ -3,3 +3,4 @@
 /listings-state/
 *.png
 .DS_Store
+.aider*

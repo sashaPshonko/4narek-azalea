@@ -24,12 +24,17 @@ const HOTBAR_START: usize = 36;
 const HOTBAR_END: usize = 44;
 
 pub async fn sell_pass(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>>) {
+    {
+        let mut s = state.lock();
+        s.need_sell = false;
+    }
+    state.lock().storage_presence_sent = false;
     if crate::safe_inv::try_close(bot) {
         delay::rnd("500MS").await;
     }
 
-    let catalog = state.lock().catalog.clone();
-    if catalog.is_empty() {
+    let catalog_all = state.lock().catalog_all.clone();
+    if catalog_all.is_empty() {
         warn!("sell → каталог пуст (ждём Go prices)");
         return;
     }
@@ -69,7 +74,7 @@ pub async fn sell_pass(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>
         let Some(data) = slots.get(idx).and_then(present) else {
             continue;
         };
-        let Some(info) = match_slot_info(bot, data, &catalog, &boot.go_type) else {
+        let Some(info) = match_slot_info(bot, data, &catalog_all, &boot.go_type) else {
             continue;
         };
 
@@ -102,7 +107,7 @@ pub async fn sell_pass(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>
             warn!("продажа → слот {idx} пуст после select");
             continue;
         };
-        if match_slot_info(bot, data_now, &catalog, &boot.go_type).is_none() {
+        if match_slot_info(bot, data_now, &catalog_all, &boot.go_type).is_none() {
             warn!(
                 "продажа → в руке не наш товар ({:?}), skip",
                 data_now.kind
@@ -254,7 +259,7 @@ async fn move_one_backpack_to_hotbar(
     boot: &BotBoot,
     state: &Arc<Mutex<BotState>>,
 ) -> bool {
-    let catalog = state.lock().catalog.clone();
+    let catalog_all = state.lock().catalog_all.clone();
     let slots = player_inventory_slots(bot);
     let mut target_hot: Option<usize> = None;
     for i in HOTBAR_START..=HOTBAR_END {
@@ -263,7 +268,7 @@ async fn move_one_backpack_to_hotbar(
             break;
         };
         // пустой или trash — можно заменить; trade/foreign — занят
-        match get_slot_kind(bot, data, &catalog, &boot.go_type) {
+        match get_slot_kind(bot, data, &catalog_all, &boot.go_type) {
             SlotKind::Trash => {
                 target_hot = Some(i);
                 break;
@@ -277,7 +282,7 @@ async fn move_one_backpack_to_hotbar(
     // trash на целевом слоте — выкинуть перед переносом
     if let Some(data) = slots.get(hot).and_then(present) {
         if matches!(
-            get_slot_kind(bot, data, &catalog, &boot.go_type),
+            get_slot_kind(bot, data, &catalog_all, &boot.go_type),
             SlotKind::Trash
         ) {
             bot.set_selected_hotbar_slot((hot - HOTBAR_START) as u8);
@@ -299,7 +304,7 @@ async fn move_one_backpack_to_hotbar(
         let Some(data) = slots.get(idx).and_then(present) else {
             continue;
         };
-        if match_slot_info(bot, data, &catalog, &boot.go_type).is_none() {
+        if match_slot_info(bot, data, &catalog_all, &boot.go_type).is_none() {
             continue;
         }
         let Some(inv) = crate::safe_inv::try_handle(bot) else {
@@ -326,8 +331,8 @@ fn sell_slot_is_empty(
     let Some(data) = slots.get(idx).and_then(present) else {
         return true;
     };
-    let catalog = state.lock().catalog.clone();
-    match get_slot_kind(bot, data, &catalog, &boot.go_type) {
+    let catalog_all = state.lock().catalog_all.clone();
+    match get_slot_kind(bot, data, &catalog_all, &boot.go_type) {
         SlotKind::Trade(_) => false,
         SlotKind::Trash | SlotKind::Foreign { .. } => true,
     }
@@ -343,7 +348,7 @@ pub fn inventory_catalog_ids(
     boot: &BotBoot,
     state: &Arc<Mutex<BotState>>,
 ) -> Vec<String> {
-    let catalog = state.lock().catalog.clone();
+    let catalog_all = state.lock().catalog_all.clone();
     let slots = player_inventory_slots(bot);
     let mut ids = Vec::new();
     for (i, slot) in slots.iter().enumerate() {
@@ -351,7 +356,7 @@ pub fn inventory_catalog_ids(
             continue;
         }
         let Some(data) = present(slot) else { continue };
-        if let Some(info) = match_slot_info(bot, data, &catalog, &boot.go_type) {
+        if let Some(info) = match_slot_info(bot, data, &catalog_all, &boot.go_type) {
             ids.push(info.id);
         }
     }
