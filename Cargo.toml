@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/ipc", "crates/orch", "crates/bot"]
+members = ["crates/ipc", "crates/orch", "crates/bot", "crates/view"]
 
 [workspace.package]
 edition = "2021"
@@ -22,3 +22,8 @@ socks5-impl = { version = "0.8", features = ["client"] }
 rsa = { path = "vendor/rsa" }
 # click_event в Style (JSON+NBT) — апстрим пока Default
 azalea-chat = { path = "vendor/azalea-chat" }
+# shift-click из сундука: ванильный порядок слотов (с конца), см. vendor/azalea-inventory/src/operations.rs
+azalea-inventory = { path = "vendor/azalea-inventory" }
+# select_known_packs как у ванили + встроенные ванильные данные реестров (см. комментарии в коде)
+azalea-core = { path = "vendor/azalea-core" }
+azalea-client = { path = "vendor/azalea-client" }

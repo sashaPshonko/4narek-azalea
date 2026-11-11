@@ -1,6 +1,7 @@
 /target/
 /node_modules/
 /listings-state/
+/dumps/
 *.png
 .DS_Store
 .aider*

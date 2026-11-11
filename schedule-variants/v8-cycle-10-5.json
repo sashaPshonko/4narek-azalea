@@ -1,0 +1,6 @@
+{
+  "hash_salt": "default",
+  "jitter_minutes": 15,
+  "keep_cover": true,
+  "cycle": { "work_min": 600, "rest_min": 300, "slots": 3 }
+}

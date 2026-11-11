@@ -1,5 +1,5 @@
 //! Конфиг орка: `orch.json` рядом с репо / cwd.
-//! Боты/прокси/овнер: `farm_root/bots/{an}b.json`, `ip.json`, `clan-owners.json`, `owner-ip.json`.
+//! Боты/прокси: `farm_root/bots/{an}b.json`, `ip.json`.
 
 use std::{
     env,
@@ -15,7 +15,7 @@ pub struct OrchConfig {
     /// Номер анки (как `502b.mjs`). Можно переопределить: `./orch502 503`.
     #[serde(default = "default_anarchy")]
     pub anarchy: u16,
-    /// Корень с `bots/`, `ip.json`, `clan-owners.json`, `owner-ip.json`.
+    /// Корень с `bots/`, `ip.json`.
     #[serde(default = "default_farm_root")]
     pub farm_root: String,
     #[serde(default = "default_go_ws")]
@@ -78,7 +78,7 @@ pub fn load() -> Result<LoadedOrch> {
             cfg.anarchy = an;
         } else if arg == "-h" || arg == "--help" {
             eprintln!(
-                "usage: orch502 [anarchy]\n  конфиг: orch.json (anarchy, farm_root, go_ws, local_mode)\n  боты: {{farm_root}}/bots/{{an}}b.json + ip.json + clan-owners.json"
+                "usage: orch502 [anarchy]\n  конфиг: orch.json (anarchy, farm_root, go_ws, local_mode)\n  боты: {{farm_root}}/bots/{{an}}b.json + ip.json"
             );
             std::process::exit(0);
         }
@@ -97,9 +97,7 @@ pub fn load() -> Result<LoadedOrch> {
             bots.display()
         );
     }
-    if !farm_root.join("ip.json").is_file() {
-        bail!("нет {}/ip.json", farm_root.display());
-    }
+    // ip.json необязателен: прокси задаётся полем `proxy` в {an}b.json
 
     if config_dir.is_none() {
         info!(

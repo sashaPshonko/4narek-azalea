@@ -51,6 +51,11 @@ pub fn try_menu(bot: &Client) -> Option<Menu> {
     }
 }
 
+/// Предмет на курсоре (взят кликом и ещё не положен).
+pub fn try_carried(bot: &Client) -> Option<ItemStack> {
+    bot.get_component::<Inventory>().map(|inv| inv.carried.clone())
+}
+
 pub fn try_player_slots(bot: &Client) -> Option<Vec<ItemStack>> {
     bot.get_component::<Inventory>()
         .map(|inv| inv.inventory_menu.slots())
@@ -68,6 +73,23 @@ pub fn try_left_click(bot: &Client, slot: usize) -> bool {
     true
 }
 
+/// То же окно, на основании которого принято решение (аналог `botKey` в JS-версии): id совпадает и это не меню игрока.
+pub fn window_matches(current: i32, expected: i32) -> bool {
+    current != 0 && current == expected
+}
+
+/// Клик только если сейчас открыто окно `expect_id`. Между решением и кликом бот ждёт (задержки, GUI settle),
+/// и за это время сервер может открыть другое окно: слепой клик попал бы в чужое меню.
+pub fn try_left_click_expect(bot: &Client, slot: usize, expect_id: i32) -> bool {
+    let Some(cur) = try_id(bot) else {
+        return false;
+    };
+    if !window_matches(cur, expect_id) {
+        return false;
+    }
+    try_left_click(bot, slot)
+}
+
 pub fn try_shift_click(bot: &Client, slot: usize) -> bool {
     let Some(h) = try_handle(bot) else {
         return false;
@@ -77,4 +99,17 @@ pub fn try_shift_click(bot: &Client, slot: usize) -> bool {
     }
     h.shift_click(slot);
     true
+}
+
+#[cfg(test)]
+mod window_guard_tests {
+    use super::*;
+
+    #[test]
+    fn click_only_in_the_expected_window() {
+        assert!(window_matches(7, 7));
+        assert!(!window_matches(8, 7)); // открылось другое окно
+        assert!(!window_matches(0, 0)); // меню игрока — не контейнер
+        assert!(!window_matches(0, 7)); // окно закрылось
+    }
 }

@@ -1,32 +1,32 @@
 [
   {
-    "username": "ze2545g5443iny",
+    "username": "juhawuwop",
     "password": "ggggg",
     "anarchy": 504,
     "type": "4narek-old",
-    "item": "netherite boots",
-    "goType": "netherite_boots-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "504-1"
+    "proxy": "socks5://GcknGW:uemBGK@170.83.239.120:8000"
   },
   {
-    "username": "prC35jgerra",
+    "username": "hijiokoplik",
     "password": "ggggg",
     "anarchy": 504,
     "type": "4narek-old",
-    "item": "netherite boots",
-    "goType": "netherite_boots-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "504-2"
+    "proxy": "socks5://zQZ9XM:C3ck7E@170.83.236.81:8000"
   },
   {
-    "username": "X_m332ffost",
+    "username": "wokimadeza",
     "password": "ggggg",
     "anarchy": 504,
     "type": "4narek-old",
-    "item": "netherite boots",
-    "goType": "netherite_boots-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "504-3"
+    "proxy": "socks5://zQZ9XM:C3ck7E@170.83.238.101:8000"
   }
 ]

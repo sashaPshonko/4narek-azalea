@@ -24,6 +24,16 @@ const EntityUtils = require('./vendor/flayercaptcha/utils/entityUtils.js');
 
 const MIN_FRAMES = 12;
 
+/** Сырой stdin последней неудачи (все рамки + все карты) — для разбора; один файл, перезаписывается. */
+let RAW_INPUT = '';
+function saveFailInput(tag) {
+    try {
+        writeFileSync(`/tmp/captcha-fail-input-${tag}.json`, RAW_INPUT);
+    } catch {
+        /* ignore */
+    }
+}
+
 async function readStdin() {
     const chunks = [];
     for await (const c of process.stdin) chunks.push(c);
@@ -232,6 +242,146 @@ function pickWallGeometric(frames, origin, minFrames = MIN_FRAMES) {
     return candidates[0].frames;
 }
 
+/**
+ * Взгляд бота (yaw/pitch в радианах, конвенция Minecraft: yaw 0 = +z/юг, 90° = −x/запад; pitch > 0 = вниз).
+ * Rust шлёт LookDirection Azalea как есть (градусы → радианы), без mineflayer-сдвига.
+ */
+function lookVector(yaw, pitch) {
+    return {
+        x: -Math.sin(yaw) * Math.cos(pitch),
+        y: -Math.sin(pitch),
+        z: Math.cos(yaw) * Math.cos(pitch),
+    };
+}
+
+/**
+ * Все прямоугольники 4×3 / 3×4 из соседних рамок на одной плоскости (оси z/x/y).
+ * BotFilter ставит ДВЕ стены: настоящую перед игроком и перемешанную приманку за спиной.
+ * Раньше брали ближайшую — а ближе часто оказывалась приманка.
+ */
+function wallWindows(frames, minFrames = MIN_FRAMES) {
+    const axes = [
+        { wallKey: 'z', widthKey: 'x', heightKey: 'y' },
+        { wallKey: 'x', widthKey: 'z', heightKey: 'y' },
+        { wallKey: 'y', widthKey: 'x', heightKey: 'z' },
+    ];
+    const shapes = [
+        [4, 3],
+        [3, 4],
+    ].filter(([w, h]) => w * h === minFrames);
+    const out = [];
+    const seen = new Set();
+    for (const { wallKey, widthKey, heightKey } of axes) {
+        const planes = new Map();
+        for (const f of frames) {
+            const wk = Math.round(f.coordinate[wallKey]);
+            if (!planes.has(wk)) planes.set(wk, []);
+            planes.get(wk).push(f);
+        }
+        for (const [wallVal, plane] of planes) {
+            if (plane.length < minFrames) continue;
+            const byCell = new Map();
+            for (const f of plane) {
+                const k = `${Math.round(f.coordinate[widthKey])},${Math.round(f.coordinate[heightKey])}`;
+                if (!byCell.has(k)) byCell.set(k, []);
+                byCell.get(k).push(f);
+            }
+            const colVals = [...new Set(plane.map((f) => Math.round(f.coordinate[widthKey])))].sort(
+                (a, b) => a - b,
+            );
+            const rowVals = [
+                ...new Set(plane.map((f) => Math.round(f.coordinate[heightKey]))),
+            ].sort((a, b) => b - a);
+            for (const [w, h] of shapes) {
+                for (let ci = 0; ci + w <= colVals.length; ci++) {
+                    // только соседние клетки: две стены через промежуток не склеиваем
+                    if (colVals[ci + w - 1] - colVals[ci] !== w - 1) continue;
+                    for (let ri = 0; ri + h <= rowVals.length; ri++) {
+                        if (rowVals[ri] - rowVals[ri + h - 1] !== h - 1) continue;
+                        const pick = [];
+                        let ok = true;
+                        for (let dc = 0; dc < w && ok; dc++) {
+                            for (let dr = 0; dr < h; dr++) {
+                                const cell = byCell.get(`${colVals[ci + dc]},${rowVals[ri + dr]}`);
+                                // пусто или две рамки в одной клетке — окно не годится
+                                if (!cell || cell.length !== 1) {
+                                    ok = false;
+                                    break;
+                                }
+                                pick.push(cell[0]);
+                            }
+                        }
+                        if (!ok || pick.length !== minFrames) continue;
+                        if (new Set(pick.map((f) => f.mapId)).size !== minFrames) continue;
+                        const key = pick
+                            .map((f) => f.mapId)
+                            .sort((a, b) => a - b)
+                            .join(',');
+                        if (seen.has(key)) continue;
+                        seen.add(key);
+                        out.push({ frames: pick, wallKey, wallVal });
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+/**
+ * Кандидаты стен по порядку: сначала те, что прямо перед ботом (по его взгляду), потом ближние.
+ * facing рамок у Azalea часто врёт (у всех «down»), поэтому направление считаем из геометрии.
+ * В конце — старые пикеры как запасной вариант.
+ */
+function wallCandidates(frames, origin, botYaw, botPitch) {
+    const withMaps = frames.filter((f) => f && f.mapId != null && f._hasMap);
+    if (withMaps.length < MIN_FRAMES) return [];
+
+    const look =
+        Number.isFinite(botYaw) && Number.isFinite(botPitch) ? lookVector(botYaw, botPitch) : null;
+    const ranked = wallWindows(withMaps).map((c) => {
+        const n = c.frames.length;
+        const center = {
+            x: c.frames.reduce((s, f) => s + f.coordinate.x, 0) / n,
+            y: c.frames.reduce((s, f) => s + f.coordinate.y, 0) / n,
+            z: c.frames.reduce((s, f) => s + f.coordinate.z, 0) / n,
+        };
+        let dist = 0;
+        let dot = 0;
+        if (origin) {
+            const v = { x: center.x - origin.x, y: center.y - origin.y, z: center.z - origin.z };
+            dist = Math.hypot(v.x, v.y, v.z) || 1e-6;
+            if (look) dot = (v.x * look.x + v.y * look.y + v.z * look.z) / dist;
+        }
+        const view = inferView(c.wallKey, c.wallVal, origin);
+        return {
+            frames: c.frames.map((f) => ({ ...f, viewDirection: view })),
+            dot,
+            dist,
+            source: 'window',
+        };
+    });
+    ranked.sort((a, b) => {
+        const fa = a.dot > 0.5 ? 0 : 1;
+        const fb = b.dot > 0.5 ? 0 : 1;
+        if (fa !== fb) return fa - fb;
+        if (Math.abs(a.dot - b.dot) > 0.05) return b.dot - a.dot;
+        return a.dist - b.dist;
+    });
+
+    const out = [...ranked];
+    const seen = new Set(out.map((c) => c.frames.map((f) => f.mapId).sort((a, b) => a - b).join(',')));
+    const legacy = pickWall(frames, origin, botYaw, botPitch);
+    if (legacy?.length >= MIN_FRAMES) {
+        const key = legacy
+            .map((f) => f.mapId)
+            .sort((a, b) => a - b)
+            .join(',');
+        if (!seen.has(key)) out.push({ frames: legacy, dot: 0, dist: 0, source: 'legacy' });
+    }
+    return out;
+}
+
 /** Как capture.mjs pickFrames + geometric fallback. */
 function pickWall(frames, origin, botYaw, botPitch) {
     const withMaps = frames.filter((f) => f && f.mapId != null && f._hasMap);
@@ -270,6 +420,7 @@ function pickWall(frames, origin, botYaw, botPitch) {
 function main() {
     readStdin()
         .then(async (raw) => {
+            RAW_INPUT = raw;
             const msg = JSON.parse(raw || '{}');
             const framesIn = Array.isArray(msg.frames) ? msg.frames : [];
             const mapsObj = msg.maps && typeof msg.maps === 'object' ? msg.maps : {};
@@ -308,8 +459,8 @@ function main() {
             const botYaw = Number(msg.botYaw);
             const botPitch = Number(msg.botPitch);
 
-            const wall = pickWall(frames, origin, botYaw, botPitch);
-            if (!wall || wall.length < MIN_FRAMES) {
+            const cands = wallCandidates(frames, origin, botYaw, botPitch);
+            if (!cands.length) {
                 const diag = diagFail(frames, origin);
                 try {
                     writeFileSync(
@@ -357,7 +508,6 @@ function main() {
                 up: 'down',
                 down: 'up',
             };
-            const baseView = wall[0]?.viewDirection || 'south';
             const rotModes = [
                 { name: 'as_is', fn: (r) => r & 7 },
                 { name: 'mod4', fn: (r) => r & 3 },
@@ -365,47 +515,59 @@ function main() {
                 { name: 'neg', fn: (r) => (-(r & 3) + 4) & 3 },
                 { name: 'zero', fn: () => 0 },
             ];
-            /** @type {{ png: Buffer, quality: ReturnType<typeof inspectCaptchaPng>, view: string, rotOff: number, rotMode: string }[]} */
+            /** @type {{ png: Buffer, quality: ReturnType<typeof inspectCaptchaPng>, view: string, rotOff: number, rotMode: string, wall: typeof frames }[]} */
             const tries = [];
-            for (const view of [baseView, viewAlt[baseView] || baseView]) {
-                for (const mode of rotModes) {
-                    for (const rotOff of [0, 1, 2, 3]) {
-                        const tagged = wall.map((f) => ({
-                            ...f,
-                            viewDirection: view,
-                            rotate: (mode.fn(f.rotate | 0) + rotOff) & 3,
-                        }));
-                        const { png } = await assembleCaptcha(tagged, mapsRaw);
-                        const quality = inspectCaptchaPng(png);
-                        tries.push({ png, quality, view, rotOff, rotMode: mode.name });
-                        if (quality.ok) {
-                            process.stdout.write(
-                                JSON.stringify({
-                                    ok: true,
-                                    pngBase64: png.toString('base64'),
-                                    wallSize: wall.length,
-                                    wallMapIds: wall.map((f) => f.mapId),
-                                    wallView: view,
-                                    rotOff,
-                                    rotMode: mode.name,
-                                    quality: {
-                                        cols: quality.cols,
-                                        rows: quality.rows,
-                                        seamMean: quality.seamMean,
-                                        blackRatio: quality.blackRatio,
-                                    },
-                                }),
-                            );
-                            return;
+            // Стены по порядку (сначала перед ботом); первая, что склеилась без разрывов на швах, — ответ.
+            for (let ci = 0; ci < cands.length; ci++) {
+                const cand = cands[ci];
+                const wall = cand.frames;
+                const baseView = wall[0]?.viewDirection || 'south';
+                for (const view of [baseView, viewAlt[baseView] || baseView]) {
+                    for (const mode of rotModes) {
+                        for (const rotOff of [0, 1, 2, 3]) {
+                            const tagged = wall.map((f) => ({
+                                ...f,
+                                viewDirection: view,
+                                rotate: (mode.fn(f.rotate | 0) + rotOff) & 3,
+                            }));
+                            const { png } = await assembleCaptcha(tagged, mapsRaw);
+                            const quality = inspectCaptchaPng(png);
+                            tries.push({ png, quality, view, rotOff, rotMode: mode.name, wall });
+                            if (quality.ok) {
+                                process.stdout.write(
+                                    JSON.stringify({
+                                        ok: true,
+                                        pngBase64: png.toString('base64'),
+                                        wallSize: wall.length,
+                                        wallMapIds: wall.map((f) => f.mapId),
+                                        wallView: view,
+                                        wallRank: ci,
+                                        wallCandidates: cands.length,
+                                        wallDot: +cand.dot.toFixed(2),
+                                        wallSource: cand.source,
+                                        rotOff,
+                                        rotMode: mode.name,
+                                        quality: {
+                                            cols: quality.cols,
+                                            rows: quality.rows,
+                                            seamMean: quality.seamMean,
+                                            blackRatio: quality.blackRatio,
+                                        },
+                                    }),
+                                );
+                                return;
+                            }
                         }
                     }
                 }
             }
             tries.sort((a, b) => a.quality.seamMean - b.quality.seamMean);
             const best = tries[0];
+            const wall = best.wall;
             const quality = best.quality;
             const png = best.png;
             if (!quality.ok) {
+                saveFailInput('quality');
                 try {
                     writeFileSync('/tmp/captcha-quality-fail.png', png);
                     const mapsDump = {};

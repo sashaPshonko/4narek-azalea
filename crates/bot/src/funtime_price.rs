@@ -82,7 +82,7 @@ pub fn decide_funtime_max_price(
 pub fn decide_funtime_min_price(
     funtime_raw: f64,
     catalog_sell: f64,
-    nacenka: f64,
+    _nacenka: f64,
     book_floor: f64,
     book_mid: f64,
 ) -> FuntimeMinDecide {
@@ -98,7 +98,8 @@ pub fn decide_funtime_min_price(
             list_price: funtime_raw,
         };
     }
-    let list_price = apply_catalog_marker(funtime_raw, catalog_sell, true) + nacenka.max(0.0);
+    // Наценку не прибавляем: Go во время заморозки закупки подставляет сюда 1e6..1e9.
+    let list_price = apply_catalog_marker(funtime_raw, catalog_sell, true);
 
     if book_mid > 0.0 {
         let mid_cap = book_mid * FUNTIME_MIN_MID_RATIO;

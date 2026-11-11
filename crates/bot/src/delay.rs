@@ -1,5 +1,5 @@
 //! Порт `4narek-1.12/delay/delay.mjs` + `delay.json` + `lib/ah-buy-tempo.mjs`.
-//! Per-bot scale/jitter — боты не ходят в одном ритме.
+//! Без per-bot scale/jitter — все боты в одном ритме.
 
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -8,21 +8,19 @@ use rand::Rng;
 use serde_json::Value;
 
 static TIMING: OnceLock<Value> = OnceLock::new();
-static PROFILE: OnceLock<DelayProfile> = OnceLock::new();
 static AH_TEMPO: OnceLock<AhTempoProfile> = OnceLock::new();
+/// Личный коэффициент темпа продажи (0.85–1.35), по хешу ника: ритм у ботов разный.
+static SELL_SCALE: OnceLock<f64> = OnceLock::new();
 
-#[derive(Debug, Clone, Copy)]
-struct DelayProfile {
-    scale: f64,
-    jitter_max: u32,
-}
-
-/// Как JS `createAhTempoProfile`: step × номер строки + extra jitter.
+/// Темп покупки АХ — два независимых диапазона по строкам.
+/// row=1 (слот 0–8)  → row1_min..=row1_max
+/// row=2 (слот 9–17) → row2_min..=row2_max
 #[derive(Debug, Clone, Copy)]
 struct AhTempoProfile {
-    step_min: u32,
-    step_max: u32,
-    extra_jitter_max: u32,
+    row1_min: u32,
+    row1_max: u32,
+    row2_min: u32,
+    row2_max: u32,
 }
 
 fn timing() -> &'static Value {
@@ -31,38 +29,31 @@ fn timing() -> &'static Value {
     })
 }
 
-/// FNV-1a 32-bit как `hashUsername` в bot-tempo.mjs.
-fn hash_username(username: &str) -> u32 {
-    let mut h: u32 = 2166136261;
-    for b in username.bytes() {
-        h ^= u32::from(b);
-        h = h.wrapping_mul(16777619);
-    }
-    h
-}
+/// Самая короткая задержка перед кликом на лот (мс). От неё зависит окно выбора между ботами в Go
+/// (lot_claims.go, 1 с): все решения о владельце лота должны дойти до клика.
+pub const AH_BUY_DELAY_MIN_MS: u32 = 2000;
 
 pub fn init_bot_delay_profile(username: &str) {
-    let h = hash_username(username);
-    let scale = 0.82 + f64::from(h % 45) / 100.0; // 0.82–1.26
-    let jitter_max = 80 + ((h >> 4) % 320); // 80–399
-    let _ = PROFILE.set(DelayProfile { scale, jitter_max });
-
-    // bot-tempo.mjs createAhTempoProfile
-    let step_min = 900 + (h % 301); // 900–1200
-    let step_max = (step_min + 300 + ((h >> 3) % 401)).min(1800); // ≤1800
-    let extra_jitter_max = 250 + ((h >> 5) % 550); // 250–799
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in username.bytes() {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let _ = SELL_SCALE.set(0.85 + (h % 1000) as f64 / 1000.0 * 0.5);
     let _ = AH_TEMPO.set(AhTempoProfile {
-        step_min,
-        step_max,
-        extra_jitter_max,
+        row1_min: AH_BUY_DELAY_MIN_MS,
+        row1_max: 2400,
+        row2_min: 2400,
+        row2_max: 3000,
     });
 }
 
 fn ah_tempo() -> AhTempoProfile {
     *AH_TEMPO.get().unwrap_or(&AhTempoProfile {
-        step_min: 900,
-        step_max: 1800,
-        extra_jitter_max: 0,
+        row1_min: 600,
+        row1_max: 1300,
+        row2_min: 1300,
+        row2_max: 1700,
     })
 }
 
@@ -73,43 +64,41 @@ pub fn ah_row_number(slot: usize) -> u32 {
     (slot / SLOTS_PER_ROW) as u32 + 1
 }
 
-/// Задержка клика buy: step × строка + jitter профиля (как JS `ahBuyDelayMs`).
-/// Без общего scale из delay.json — отдельный темп.
+/// Задержка клика buy: рандом из диапазона по строке.
+/// row=1: 600–1300мс, row=2: 1300–1700мс.
 pub fn ah_buy_delay_ms(slot: usize) -> u64 {
     let row = ah_row_number(slot);
     let p = ah_tempo();
     let mut rng = rand::thread_rng();
-    let step = if p.step_max <= p.step_min {
-        p.step_min
+    let (min, max) = if row <= 1 {
+        (p.row1_min, p.row1_max)
     } else {
-        rng.gen_range(p.step_min..=p.step_max)
+        (p.row2_min, p.row2_max)
     };
-    let jitter = if p.extra_jitter_max > 0 {
-        rng.gen_range(0..=p.extra_jitter_max)
+    if max <= min {
+        u64::from(min)
     } else {
-        0
-    };
-    u64::from(step) * u64::from(row) + u64::from(jitter)
+        u64::from(rng.gen_range(min..=max))
+    }
 }
 
 pub fn ah_buy_delay(slot: usize) -> Duration {
     Duration::from_millis(ah_buy_delay_ms(slot))
 }
 
-fn profile() -> DelayProfile {
-    *PROFILE.get().unwrap_or(&DelayProfile {
-        scale: 1.0,
-        jitter_max: 0,
-    })
-}
-
-/// Миллисекунды по ключу из delay.json (+ scale/jitter профиля).
+/// Миллисекунды по ключу из delay.json. Без scale/jitter профиля —
+/// значение ровно из delay.json (число или rng.gen_range(min..=max)).
 pub fn get_ms(key: &str) -> u64 {
     let range = timing()
         .get(key)
         .unwrap_or_else(|| panic!("нет задержки: {key}"));
     let mut rng = rand::thread_rng();
-    let base = if let Some(n) = range.as_u64() {
+    let scale = if key.starts_with("SELL_") {
+        SELL_SCALE.get().copied().unwrap_or(1.0)
+    } else {
+        1.0
+    };
+    if let Some(n) = range.as_u64() {
         n
     } else if let Some(n) = range.as_i64() {
         n.max(0) as u64
@@ -122,19 +111,9 @@ pub fn get_ms(key: &str) -> u64 {
             .get("max")
             .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|i| i.max(0) as u64)))
             .unwrap_or(min);
-        if max <= min {
-            min
-        } else {
-            rng.gen_range(min..=max)
-        }
-    };
-    let p = profile();
-    let jitter = if p.jitter_max > 0 {
-        rng.gen_range(0..=p.jitter_max) as u64
-    } else {
-        0
-    };
-    ((base as f64) * p.scale).round().max(0.0) as u64 + jitter
+        let v = if max <= min { min } else { rng.gen_range(min..=max) };
+        (v as f64 * scale).round() as u64
+    }
 }
 
 pub fn duration(key: &str) -> Duration {
@@ -158,6 +137,20 @@ pub async fn rnd_poll(key: &str, interval_ms: u64, mut should_abort: impl FnMut(
         remaining = remaining.saturating_sub(chunk);
     }
     !should_abort()
+}
+
+/// Пауза между предметами при продаже: почти всегда небольшая, но каждый ~4-й раз человек отвлекается
+/// (3–7 с). Равномерный узкий ритм у всех ботов выглядит как скрипт.
+pub async fn sell_gap() {
+    let ms = {
+        let mut rng = rand::thread_rng();
+        if rng.gen_range(0..4) == 0 {
+            rng.gen_range(3000..7000)
+        } else {
+            rng.gen_range(300..1200)
+        }
+    };
+    tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
 /// Фиксированные константы ack/попыток из old (не в delay.json).

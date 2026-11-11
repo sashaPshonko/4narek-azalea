@@ -1,0 +1,27 @@
+{
+  "enabled": true,
+  "anarchies": [
+    509
+  ],
+  "query": "инвиз",
+  "min_stack": 64,
+  "max_unit_cost": 15625,
+  "price_floor": 30000,
+  "price_ceil": 79000,
+  "price_step": 1000,
+  "ah_slots": 5,
+  "reserve": 2000000,
+  "buy_retry_sec": 20,
+  "price_start": 45000,
+  "relist_sec": 60,
+  "stale_unlist_sec": 0,
+  "armor_query": "netherite armour",
+  "armor_rolls": 40,
+  "armor_retry_sec": 300,
+  "sell_mode": "ah_sell",
+  "bot_modes": {
+    "taconaricer": "sellgui"
+  },
+  "clean_every_sec": 600,
+  "keep_sum": 5000000
+}

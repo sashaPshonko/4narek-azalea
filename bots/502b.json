@@ -1,32 +1,32 @@
 [
   {
-    "username": "jnwe32332dsd",
-    "password": "ggggg",
+    "username": "nokolpoker",
+    "password": "dsdsds",
     "anarchy": 502,
     "type": "4narek-old",
-    "item": "netherite helmet",
-    "goType": "netherite_helmet-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "502-1"
+    "proxy": "socks5://uhhVBw:NyXZRR@170.83.236.254:8000"
   },
   {
-    "username": "jjg344343",
-    "password": "ggggg",
+    "username": "jatuwocegal",
+    "password": "lvbhgjjq",
     "anarchy": 502,
     "type": "4narek-old",
-    "item": "netherite helmet",
-    "goType": "netherite_helmet-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "502-2"
+    "proxy": "socks5://Sg03dN:7kX4uF@170.83.237.210:8000"
   },
   {
-    "username": "k233kjs67ue",
-    "password": "ggggg",
+    "username": "fukuzedahuv",
+    "password": "pfzkmtby",
     "anarchy": 502,
     "type": "4narek-old",
-    "item": "netherite helmet",
-    "goType": "netherite_helmet-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "502-3"
+    "proxy": "socks5://zQZ9XM:C3ck7E@170.83.239.200:8000"
   }
 ]

@@ -1,0 +1,10 @@
+{
+  "hash_salt": "default",
+  "jitter_minutes": 15,
+  "keep_cover": true,
+  "slots": [
+    { "long": [["02:00", "07:00"]] },
+    { "long": [["10:00", "15:00"]] },
+    { "long": [["18:00", "23:00"]] }
+  ]
+}

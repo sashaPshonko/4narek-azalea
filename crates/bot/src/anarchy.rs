@@ -1,4 +1,5 @@
-//! Ждём вход на анку: scoreboard с номером /an (как 4narek-old, май 2026).
+//! Вход на анку: чат «Вы уже подключены к этому серверу».
+//! Слетели: ⚡-хаб, «нет команд», transfer, disconnect. Скорборд не трогаем.
 
 use std::{
     sync::Arc,
@@ -25,11 +26,6 @@ const LOBBY_BROADCAST_MARKERS: &[&str] = &[
     "⚡ Наш Сайт FunTime.su",
     "⚡ Наши сообщества и соц. сети /links",
     "⚡ Вы играете на FunTime! play.funtime.su",
-    // Новые маркеры (октябрь 2026) - сервер изменил формат
-    "★ FunTime.su ★",
-    "Добро пожаловать на FunTime",
-    "Наши социальные сети – /links",
-    "Приятной игры и новых побед",
 ];
 
 /// `bot.position()` паникует во время transfer — только Option.
@@ -63,8 +59,35 @@ pub fn on_lobby_broadcast(state: &Arc<Mutex<BotState>>, text: &str) -> bool {
     true
 }
 
-/// Пока нет scoreboard с номером анки — шлём /an и ждём.
-/// `false` = бан / shutdown / таймаут.
+fn captcha_busy(state: &Arc<Mutex<BotState>>) -> bool {
+    state.lock().captcha_busy
+}
+
+/// Капча в чате — не /an и не «уже на анке». Иначе сбиваем стену и солвер.
+async fn wait_captcha_idle(state: &Arc<Mutex<BotState>>, max: Duration) -> bool {
+    let until = Instant::now() + max;
+    let mut logged = false;
+    loop {
+        if state.lock().banned || state.lock().shutdown {
+            return false;
+        }
+        if !captcha_busy(state) {
+            return true;
+        }
+        if Instant::now() >= until {
+            warn!("капча → слишком долго, /an не шлю");
+            return false;
+        }
+        if !logged {
+            info!("капча → жду, /an не шлю");
+            logged = true;
+        }
+        delay::rnd("POLL").await;
+    }
+}
+
+/// Пока нет «уже подключены» — шлём /an и ждём.
+/// `false` = бан / shutdown / таймаут / капча зависла.
 pub async fn wait_until_on_anarchy(
     bot: &Client,
     boot: &BotBoot,
@@ -74,29 +97,41 @@ pub async fn wait_until_on_anarchy(
         return false;
     }
 
+    if captcha_busy(state) && !wait_captcha_idle(state, Duration::from_secs(120)).await {
+        return false;
+    }
+
     if state.lock().on_anarchy {
-        settle_after_join(state).await;
+        settle_after_join(state, &boot.go_type).await;
         return !state.lock().banned;
     }
 
-    let deadline = Instant::now() + Duration::from_secs(90);
+    let mut deadline = Instant::now() + Duration::from_secs(90);
 
     while Instant::now() < deadline {
         if state.lock().banned || state.lock().shutdown {
             return false;
         }
 
+        if captcha_busy(state) {
+            if !wait_captcha_idle(state, Duration::from_secs(120)).await {
+                return false;
+            }
+            deadline = Instant::now() + Duration::from_secs(90);
+            continue;
+        }
+
         if state.lock().on_anarchy {
-            info!("анка → scoreboard an{} ок", boot.anarchy);
-            settle_after_join(state).await;
+            info!("анка an{} → уже подключены", boot.anarchy);
+            settle_after_join(state, &boot.go_type).await;
             return !state.lock().banned;
         }
 
         crate::cmd::say(bot, format!("/an{}", boot.anarchy));
-        info!("/an{} → жду scoreboard", boot.anarchy);
+        info!("/an{} → жду «уже подключены»", boot.anarchy);
 
-        // Ждём scoreboard максимум 3 секунды.
-        // Если не пришёл — снова отправляем /an.
+        // 3с на ответ. Нет фразы — ещё раз /an.
+        // Капча — /an не шлём, пока не решат.
         let retry_at = Instant::now() + Duration::from_secs(3);
 
         while Instant::now() < retry_at {
@@ -104,9 +139,13 @@ pub async fn wait_until_on_anarchy(
                 return false;
             }
 
+            if captcha_busy(state) {
+                break;
+            }
+
             if state.lock().on_anarchy {
-                info!("анка → scoreboard an{} ок", boot.anarchy);
-                settle_after_join(state).await;
+                info!("анка an{} → уже подключены", boot.anarchy);
+                settle_after_join(state, &boot.go_type).await;
                 return !state.lock().banned;
             }
 
@@ -114,11 +153,18 @@ pub async fn wait_until_on_anarchy(
         }
     }
 
-    warn!("анка → за 90с нет scoreboard an{}", boot.anarchy);
+    warn!("анка → за 90с нет «уже подключены» an{}", boot.anarchy);
     false
 }
 
-async fn settle_after_join(state: &Arc<Mutex<BotState>>) {
+async fn settle_after_join(
+    state: &Arc<Mutex<BotState>>,
+    go_type: &str,
+) {
+    // owner не ходит на АХ — пауза «устояться» ему не нужна
+    if go_type == "owner" {
+        return;
+    }
     let joined = state.lock().anarchy_joined_at.unwrap_or_else(Instant::now);
     let wait_until = joined + delay::duration("WAIT_ANARCHY");
     let left = wait_until.saturating_duration_since(Instant::now());
@@ -134,21 +180,16 @@ async fn settle_after_join(state: &Arc<Mutex<BotState>>) {
     }
 }
 
-pub fn scoreboard_mentions_anarchy(blob: &str, anarchy: u16) -> bool {
-    blob.contains(&anarchy.to_string())
-}
-
-pub fn mark_anarchy_joined(
-    boot: &BotBoot,
-    state: &Arc<Mutex<BotState>>,
-) {
+pub fn mark_anarchy_joined(boot: &BotBoot, state: &Arc<Mutex<BotState>>) {
     if state.lock().banned {
         return;
     }
 
     let mut st = state.lock();
 
-    st.last_anarchy_board_at = Some(Instant::now());
+    if st.captcha_busy {
+        return;
+    }
 
     if st.on_anarchy {
         return;
@@ -159,7 +200,7 @@ pub fn mark_anarchy_joined(
 
     drop(st);
 
-    info!("анархия {} — scoreboard подтверждён", boot.anarchy);
+    info!("анархия {} — «уже подключены»", boot.anarchy);
 
     emit(&WorkerMsg {
         name: "success".into(),
@@ -188,33 +229,3 @@ pub fn clear_anarchy(state: &Arc<Mutex<BotState>>, why: &str) {
     });
 }
 
-/// Objective/display без номера анки, пока считали себя на анке → хаб.
-/// SetScore не трогаем (шум на анке). Игнор первые 15с после join.
-pub fn on_scoreboard_packet(
-    state: &Arc<Mutex<BotState>>,
-    anarchy: u16,
-    blob: &str,
-    is_objective_level: bool,
-) {
-    if scoreboard_mentions_anarchy(blob, anarchy) {
-        let mut st = state.lock();
-        st.last_anarchy_board_at = Some(Instant::now());
-        return;
-    }
-    if !is_objective_level {
-        return;
-    }
-    let (on, joined_at) = {
-        let st = state.lock();
-        (st.on_anarchy, st.anarchy_joined_at)
-    };
-    if !on {
-        return;
-    }
-    if let Some(j) = joined_at {
-        if j.elapsed() < Duration::from_secs(15) {
-            return;
-        }
-    }
-    clear_anarchy(state, &format!("scoreboard без an{anarchy}"));
-}

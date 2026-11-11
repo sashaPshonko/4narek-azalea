@@ -1,0 +1,21 @@
+[package]
+name = "view"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "botview"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+azalea = { workspace = true }
+azalea-inventory = { workspace = true }
+parking_lot = "0.12"
+serde = { workspace = true }
+serde_json = { workspace = true }
+socks5-impl = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "io-util", "io-std", "sync", "net"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+url = "2"

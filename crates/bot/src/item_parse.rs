@@ -5,12 +5,13 @@ use azalea_chat::FormattedText;
 use azalea_inventory::{
     ItemStack, ItemStackData,
     components::{
-        CustomData, CustomName, Damage, Enchantments, Lore, MaxDamage, StoredEnchantments,
+        CustomData, CustomName, Damage, Enchantments, ItemName, Lore, MaxDamage,
+        StoredEnchantments,
     },
 };
 use azalea_registry::{DataRegistry, builtin::ItemKind};
 use regex::Regex;
-use serde_json::Value;
+use serde_json::{json, Value};
 use simdnbt::owned::{Nbt, NbtCompound, NbtList, NbtTag};
 use std::sync::OnceLock;
 
@@ -24,6 +25,13 @@ pub struct SlotInfo {
     pub book_floor: f64,
     /// Перцентиль потолка книги из Go (0 = нет).
     pub book_mid: f64,
+    /// Скорость продаж товара в штуках в час (Go; 0 = нет данных).
+    pub rate_per_hour: f64,
+    /// Сколько товара уже на руках по флоту (лоты на АХ + инвентарь).
+    pub held: u32,
+    /// Типичная оценка лота у флота сейчас (медиана свежих покупок по категории, Go; 0 = нет данных).
+    /// Лот «исключительный», если его оценка заметно выше этого эталона: сравнение с текущим рынком, а не абсолют.
+    pub score_ref: f64,
 }
 
 /// Как old `getSlotInfo`.
@@ -376,16 +384,21 @@ pub fn durability_percent(item: &ItemStackData) -> f64 {
     ((max - dmg) / max).clamp(0.0, 1.0)
 }
 
-pub fn price_with_durability(base: f64, dur: f64) -> f64 {
-    if dur < 0.5 {
+/// `mending`: мягкая кривая прочности (пол 0.5), без порога trash — торгуется всегда.
+/// Без mending: линейно, trash при < 0.5 (как раньше).
+pub fn price_with_durability_mending(base: f64, dur: f64, mending: bool) -> f64 {
+    let dur_eff = if mending { 0.5 + 0.5 * dur } else { dur };
+    if !mending && dur_eff < 0.5 {
         return 0.0;
     }
     let marker = (base as i64) % 100;
-    let price = ((base * dur).floor() as i64 / 100) * 100 + marker;
+    let price = ((base * dur_eff).floor() as i64 / 100) * 100 + marker;
     price as f64
 }
 
-/// Чары: ваниль (id → имя как old/`minecraft-data` 1.21.11) + custom_data + лор.
+/// Чары: ваниль из компонента + кастом.
+/// На АХ FunTime кастом в NBT нет (только auctions:if-uuid) — чары в лоре
+/// отдельными строками «Яд I». Custom name не читаем (скам переименованием).
 pub fn all_enchant_labels(bot: &Client, item: &ItemStackData) -> Vec<(String, i32)> {
     let _ = bot; // API стабильный; ваниль — по protocol id как old, не Azalea registry
     let mut by_name: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
@@ -416,15 +429,243 @@ pub fn all_enchant_labels(bot: &Client, item: &ItemStackData) -> Vec<(String, i3
     }
 
     if let Some(data) = item.get_component::<CustomData>() {
-        walk_custom_enchants(&data.nbt, &mut |n, l| push(n, l));
-    }
-
-    for s in lore_strings(item) {
-        if let Some((name, lvl)) = parse_lore_enchant(&s) {
-            push(name, lvl);
+        for (n, l) in extract_custom_enchants_from_nbt(&data.nbt) {
+            push(n, l);
         }
     }
+
+    for (n, l) in extract_custom_enchants_from_lore_lines(&lines_for_custom_enchant_parse(item))
+    {
+        push(n, l);
+    }
+
     by_name.into_iter().collect()
+}
+
+/// Чары кастом на АХ: отдельные куски текста (лор + extra у имени).
+/// Целиком переименованный custom name («Яд II») не берём — скам.
+fn lines_for_custom_enchant_parse(item: &ItemStackData) -> Vec<String> {
+    let mut out = Vec::new();
+    let rename = plain_custom_name_rename(item);
+
+    if let Some(name) = item.get_component::<CustomName>() {
+        push_enchant_text_nodes(&name.name, rename.as_deref(), &mut out);
+    }
+    if let Some(iname) = item.get_component::<ItemName>() {
+        push_enchant_text_nodes(&iname.name, None, &mut out);
+    }
+    if let Some(lore) = item.get_component::<Lore>() {
+        for line in &lore.lines {
+            push_enchant_text_nodes(line, None, &mut out);
+        }
+    }
+    // то же, что в дампе (name+lore to_string) — если extra склеились в одну строку
+    for s in lore_strings(item) {
+        push_split_lines(&s, rename.as_deref(), &mut out);
+    }
+    out
+}
+
+fn plain_custom_name_rename(item: &ItemStackData) -> Option<String> {
+    let name = item.get_component::<CustomName>()?;
+    match &name.name {
+        FormattedText::Text(c) if c.base.siblings.is_empty() => {
+            let t = c.text.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        }
+        _ => None,
+    }
+}
+
+fn push_enchant_text_nodes(t: &FormattedText, skip_exact: Option<&str>, out: &mut Vec<String>) {
+    let mut nodes = Vec::new();
+    collect_formatted_texts(t, &mut nodes);
+    let joined = t.to_string();
+    if !joined.is_empty() && !nodes.iter().any(|s| s == &joined) {
+        nodes.push(joined);
+    }
+    for n in nodes {
+        push_split_lines(&n, skip_exact, out);
+    }
+}
+
+fn push_split_lines(s: &str, skip_exact: Option<&str>, out: &mut Vec<String>) {
+    for part in s.split(['\n', '\r']) {
+        let t = part.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if skip_exact.is_some_and(|r| r == t) {
+            continue;
+        }
+        out.push(t.to_string());
+    }
+}
+
+/// Живой снимок custom_data → JSON (книга АХ). Лор отдельно, в матч не идёт.
+pub fn custom_data_json(item: &ItemStackData) -> Value {
+    match item.get_component::<CustomData>() {
+        Some(data) => nbt_to_json(&data.nbt),
+        None => Value::Null,
+    }
+}
+
+pub fn nbt_to_json(nbt: &Nbt) -> Value {
+    if matches!(nbt, Nbt::None) {
+        return Value::Null;
+    }
+    compound_to_json(nbt)
+}
+
+fn compound_to_json(c: &NbtCompound) -> Value {
+    let mut map = serde_json::Map::new();
+    for (k, v) in c.iter() {
+        map.insert(k.to_string_lossy().into_owned(), tag_to_json(v));
+    }
+    Value::Object(map)
+}
+
+fn tag_to_json(tag: &NbtTag) -> Value {
+    match tag {
+        NbtTag::Byte(n) => json!({ "t": "byte", "v": n }),
+        NbtTag::Short(n) => json!({ "t": "short", "v": n }),
+        NbtTag::Int(n) => json!({ "t": "int", "v": n }),
+        NbtTag::Long(n) => json!({ "t": "long", "v": n }),
+        NbtTag::Float(n) => json!({ "t": "float", "v": n }),
+        NbtTag::Double(n) => json!({ "t": "double", "v": n }),
+        NbtTag::String(s) => json!({ "t": "string", "v": s.to_string_lossy() }),
+        NbtTag::Compound(inner) => json!({ "t": "compound", "v": compound_to_json(inner) }),
+        NbtTag::List(list) => json!({ "t": "list", "v": list_to_json(list) }),
+        NbtTag::ByteArray(xs) => json!({
+            "t": "byteArray",
+            "v": xs.iter().map(|b| *b as i8).collect::<Vec<i8>>(),
+        }),
+        NbtTag::IntArray(xs) => json!({ "t": "intArray", "v": xs }),
+        NbtTag::LongArray(xs) => json!({ "t": "longArray", "v": xs }),
+    }
+}
+
+fn list_to_json(list: &NbtList) -> Value {
+    match list {
+        NbtList::Empty => json!([]),
+        NbtList::Byte(xs) => json!(xs),
+        NbtList::Short(xs) => json!(xs),
+        NbtList::Int(xs) => json!(xs),
+        NbtList::Long(xs) => json!(xs),
+        NbtList::Float(xs) => json!(xs),
+        NbtList::Double(xs) => json!(xs),
+        NbtList::String(xs) => json!(xs.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>()),
+        NbtList::Compound(xs) => json!(xs.iter().map(compound_to_json).collect::<Vec<_>>()),
+        NbtList::List(xs) => json!(xs.iter().map(list_to_json).collect::<Vec<_>>()),
+        NbtList::ByteArray(xs) => json!(xs),
+        NbtList::IntArray(xs) => json!(xs),
+        NbtList::LongArray(xs) => json!(xs),
+    }
+}
+
+const AH_NBT_DUMP_MAX: u32 = 80;
+
+pub fn maybe_dump_ah_nbt(
+    bot: &Client,
+    item: &ItemStackData,
+    match_kind: &str,
+    match_id: &str,
+    price: Option<f64>,
+    uuid: &str,
+    seller: &str,
+    nick: &str,
+) {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{Mutex, OnceLock};
+
+    static COUNT: AtomicU32 = AtomicU32::new(0);
+    static SEEN: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
+    static PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+    let name = item_minecraft_name(item);
+    if name != "netherite_sword" && name != "netherite_pickaxe" {
+        return;
+    }
+
+    let n = COUNT.load(Ordering::Relaxed);
+    if n >= AH_NBT_DUMP_MAX {
+        return;
+    }
+
+    let key = if uuid.is_empty() {
+        format!("{nick}:{name}:{price:?}")
+    } else {
+        uuid.to_string()
+    };
+    {
+        let seen = SEEN.get_or_init(|| Mutex::new(std::collections::HashSet::new()));
+        let mut g = seen.lock().unwrap_or_else(|e| e.into_inner());
+        if !g.insert(key) {
+            return;
+        }
+    }
+
+    let n = COUNT.fetch_add(1, Ordering::Relaxed);
+    if n >= AH_NBT_DUMP_MAX {
+        return;
+    }
+
+    let path = PATH.get_or_init(|| {
+        let dir = std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join("dumps");
+        let _ = std::fs::create_dir_all(&dir);
+        let p = dir.join("ah-nbt.jsonl");
+        tracing::info!("NBT-дамп АХ → {}", p.display());
+        p
+    });
+
+    let parsed: Vec<Value> = all_enchant_labels(bot, item)
+        .into_iter()
+        .map(|(n, l)| json!({ "name": n, "lvl": l }))
+        .collect();
+
+    let rec = json!({
+        "ts": chrono_like_now(),
+        "nick": nick,
+        "kind": name,
+        "match": match_kind,
+        "id": match_id,
+        "price": price,
+        "uuid": uuid,
+        "seller": seller,
+        "parsed_enchants": parsed,
+        "lore": lore_strings(item),
+        "enchant_src": lines_for_custom_enchant_parse(item),
+        "custom_data": custom_data_json(item),
+    });
+
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{rec}");
+    }
+
+    if n + 1 == AH_NBT_DUMP_MAX {
+        tracing::info!("NBT-дамп АХ: набрали {AH_NBT_DUMP_MAX} лотов, стоп");
+    }
+}
+
+pub(crate) fn chrono_like_now() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| {
+            let secs = d.as_secs();
+            format!("{secs}")
+        })
+        .unwrap_or_default()
 }
 
 /// Как `FUNTIME_ENCHANT_BY_ID` / minecraft-data 1.21.11 (funtime-enchants.mjs).
@@ -477,78 +718,292 @@ fn vanilla_enchant_name(protocol_id: u32) -> Option<&'static str> {
     })
 }
 
-fn walk_custom_enchants(nbt: &Nbt, push: &mut dyn FnMut(String, i32)) {
+/// FunTime кастом из PDC (`PublicBukkitValues` / `minecraft:custom-enchantments`).
+/// Только белый список имён — ваниль и мусор лора («Продавец», «Острота») отбрасываем.
+pub(crate) fn extract_custom_enchants_from_nbt(nbt: &Nbt) -> Vec<(String, i32)> {
+    let mut by_name: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
     if matches!(nbt, Nbt::None) {
-        return;
+        return Vec::new();
     }
-    walk_custom_compound(nbt, push);
+    walk_custom_compound(nbt, &mut |raw, lvl| {
+        if lvl <= 0 {
+            return;
+        }
+        let Some(name) = canonicalize_custom_enchant(&raw) else {
+            return;
+        };
+        let e = by_name.entry(name).or_insert(0);
+        if lvl > *e {
+            *e = lvl;
+        }
+    });
+    by_name.into_iter().collect()
+}
+
+/// Строка лора целиком = имя из белого списка + римская/число.
+/// Не подстрока: «Меч с Яд II» не матчится. АХ-хром (цена/продавец) пропускаем.
+pub(crate) fn extract_custom_enchants_from_lore_lines(
+    lines: &[String],
+) -> Vec<(String, i32)> {
+    let mut by_name: std::collections::HashMap<String, i32> = std::collections::HashMap::new();
+    for line in lines {
+        if lore_line_is_ah_chrome(line) {
+            continue;
+        }
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('[') {
+            continue;
+        }
+        let (raw, lvl) = if let Some((n, l)) = split_name_level(t) {
+            (n, l)
+        } else {
+            (t.to_string(), 1)
+        };
+        let Some(name) = canonicalize_custom_enchant(&raw) else {
+            continue;
+        };
+        let e = by_name.entry(name).or_insert(0);
+        if lvl > *e {
+            *e = lvl;
+        }
+    }
+    by_name.into_iter().collect()
+}
+
+fn lore_line_is_ah_chrome(s: &str) -> bool {
+    let n = normalize_funtime_cyr(s);
+    n.contains('ц') && (n.contains("цен") || n.contains("стоимость"))
+        || n.contains("продавец")
+        || n.contains("нажмите")
+        || n.contains("истек")
+        || n.contains("купить")
+        || s.contains('$')
 }
 
 fn walk_custom_compound(c: &NbtCompound, push: &mut dyn FnMut(String, i32)) {
+    if let Some((n, l)) = extract_enchant_pair(c) {
+        push(n, l);
+    }
     for (k, v) in c.iter() {
-        let key = k.to_string_lossy();
-        if key.contains("custom-enchantments") || key.contains("custom_enchantments") {
-            if let NbtTag::List(list) = v {
-                if let NbtList::Compound(xs) = list {
-                    for compound in xs {
-                        let mut name = None;
-                        let mut lvl = None;
-                        for (kk, vv) in compound.iter() {
-                            let ks = kk.to_string_lossy();
-                            if ks.ends_with("type") || ks == "type" || ks == "id" {
-                                if let NbtTag::String(s) = vv {
-                                    name = Some(s.to_string_lossy().into_owned());
-                                }
-                            }
-                            if ks.ends_with("level") || ks == "lvl" || ks == "level" {
-                                if let NbtTag::Int(n) = vv {
-                                    lvl = Some(*n);
-                                } else if let NbtTag::Short(n) = vv {
-                                    lvl = Some(*n as i32);
-                                } else if let NbtTag::Byte(n) = vv {
-                                    lvl = Some(*n as i32);
-                                }
-                            }
-                        }
-                        if let (Some(n), Some(l)) = (name, lvl) {
-                            let mapped = map_custom_ru(&n).unwrap_or(n);
-                            push(mapped, l);
-                        }
-                    }
-                }
-            }
-        }
+        let key = k.to_string_lossy().to_lowercase();
         match v {
             NbtTag::Compound(inner) => walk_custom_compound(inner, push),
-            NbtTag::List(NbtList::Compound(xs)) => {
-                for inner in xs {
-                    walk_custom_compound(inner, push);
-                }
+            NbtTag::List(list) => walk_custom_list(&key, list, push),
+            NbtTag::String(s) if key_looks_like_enchant(&key) => {
+                parse_enchant_blob(&s.to_string_lossy(), push);
             }
             _ => {}
         }
     }
 }
 
+fn walk_custom_list(key: &str, list: &NbtList, push: &mut dyn FnMut(String, i32)) {
+    if let Some(xs) = list.compounds() {
+        for inner in xs {
+            walk_custom_compound(inner, push);
+        }
+        return;
+    }
+    match list {
+        NbtList::String(xs) if key_looks_like_enchant(key) => {
+            for s in xs {
+                parse_enchant_blob(&s.to_string_lossy(), push);
+            }
+        }
+        NbtList::List(lists) => {
+            for inner in lists {
+                walk_custom_list(key, inner, push);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn key_looks_like_enchant(key: &str) -> bool {
+    key.contains("enchant") || key.contains("чар")
+}
+
+fn extract_enchant_pair(c: &NbtCompound) -> Option<(String, i32)> {
+    let mut name = None;
+    let mut lvl = None;
+    for (k, v) in c.iter() {
+        let ks = k.to_string_lossy().to_lowercase();
+        let short = ks.rsplit(':').next().unwrap_or(&ks);
+        if short == "type" || short == "id" {
+            name = tag_name_string(v);
+        } else if short == "level" || short == "lvl" {
+            lvl = tag_level(v);
+        }
+    }
+    Some((name?, lvl?))
+}
+
+fn tag_name_string(tag: &NbtTag) -> Option<String> {
+    match tag {
+        NbtTag::String(s) => {
+            let t = s.to_string_lossy().into_owned();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn tag_level(tag: &NbtTag) -> Option<i32> {
+    match tag {
+        NbtTag::Int(n) => Some(*n),
+        NbtTag::Short(n) => Some(*n as i32),
+        NbtTag::Byte(n) => Some(*n as i32),
+        NbtTag::Long(n) => i32::try_from(*n).ok(),
+        NbtTag::String(s) => parse_level_str(&s.to_string_lossy()),
+        _ => None,
+    }
+}
+
+fn parse_enchant_blob(s: &str, push: &mut dyn FnMut(String, i32)) {
+    let t = s.trim();
+    if t.is_empty() {
+        return;
+    }
+    if let Some((n, l)) = split_name_level(t) {
+        push(n, l);
+        return;
+    }
+    for part in t.split(|c: char| c == ',' || c == ';' || c == '|' || c == '\n') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if let Some((n, l)) = split_name_level(part) {
+            push(n, l);
+        }
+    }
+}
+
+fn split_name_level(s: &str) -> Option<(String, i32)> {
+    let s = s.trim();
+    if let Some((a, b)) = s.rsplit_once(':') {
+        if let Some(lvl) = parse_level_str(b.trim()) {
+            let name = a.trim();
+            if !name.is_empty() {
+                return Some((name.to_string(), lvl));
+            }
+        }
+    }
+    if let Some((a, b)) = s.rsplit_once(char::is_whitespace) {
+        if let Some(lvl) = parse_level_str(b.trim()) {
+            let name = a.trim();
+            if !name.is_empty() {
+                return Some((name.to_string(), lvl));
+            }
+        }
+    }
+    None
+}
+
+fn parse_level_str(s: &str) -> Option<i32> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(n) = s.parse::<i32>() {
+        return (n > 0).then_some(n);
+    }
+    roman_to_lvl(s)
+}
+
+fn roman_to_lvl(s: &str) -> Option<i32> {
+    let u = s.trim().to_uppercase();
+    let n = match u.as_str() {
+        "I" => 1,
+        "II" => 2,
+        "III" => 3,
+        "IV" => 4,
+        "V" => 5,
+        "VI" => 6,
+        "VII" => 7,
+        "VIII" => 8,
+        "IX" => 9,
+        "X" => 10,
+        _ => return None,
+    };
+    Some(n)
+}
+
+fn known_custom_short(n: &str) -> bool {
+    matches!(
+        n,
+        "poison"
+            | "vampirism"
+            | "detection"
+            | "heavy"
+            | "unstable"
+            | "buldozing"
+            | "mega_buldozing"
+            | "magnet"
+            | "web"
+            | "smelting"
+            | "skilled"
+            | "jumping"
+            | "sniper"
+            | "oxidation"
+            | "lava_walker"
+            | "pinger"
+            | "scout"
+            | "stupor"
+            | "pulling"
+            | "returning"
+            | "demolishing"
+    )
+}
+
+fn canonicalize_custom_enchant(name: &str) -> Option<String> {
+    if let Some(mapped) = map_custom_ru(name) {
+        return Some(mapped);
+    }
+    let mut n = name.trim().to_lowercase();
+    if let Some((_, short)) = n.rsplit_once(':') {
+        n = short.to_string();
+    }
+    known_custom_short(&n).then_some(n)
+}
+
 fn map_custom_ru(name: &str) -> Option<String> {
+    let low = name
+        .trim()
+        .to_lowercase()
+        .replace('ё', "е")
+        .replace('_', " ");
     let map = [
-        ("Яд", "poison"),
-        ("Вампиризм", "vampirism"),
-        ("Детекция", "detection"),
-        ("Тяжелый", "heavy"),
-        ("Тяжёлый", "heavy"),
-        ("Нестабильный", "unstable"),
-        ("Бульдозер", "buldozing"),
-        ("Магнит", "magnet"),
-        ("Паутина", "web"),
-        ("Авто-плавка", "smelting"),
-        ("Опытный", "skilled"),
-        ("Попрыгун", "jumping"),
-        ("Снайпер", "sniper"),
-        ("Окисление", "oxidation"),
+        ("яд", "poison"),
+        ("вампиризм", "vampirism"),
+        ("детекция", "detection"),
+        ("тяжелый", "heavy"),
+        ("нестабильный", "unstable"),
+        ("бульдозер", "buldozing"),
+        ("мега-бульдозер", "mega_buldozing"),
+        ("мега бульдозер", "mega_buldozing"),
+        ("магнит", "magnet"),
+        ("паутина", "web"),
+        ("авто-плавка", "smelting"),
+        ("авто плавка", "smelting"),
+        ("опытный", "skilled"),
+        ("попрыгун", "jumping"),
+        ("снайпер", "sniper"),
+        ("окисление", "oxidation"),
+        ("лаваход", "lava_walker"),
+        ("пингер", "pinger"),
+        ("скаут", "scout"),
+        ("ступор", "stupor"),
+        ("притяжение", "pulling"),
+        ("возвращение", "returning"),
+        ("подрывник", "demolishing"),
     ];
     for (ru, en) in map {
-        if name == ru || name.eq_ignore_ascii_case(en) {
+        if low == ru || low == en || low.replace(' ', "_") == en {
             return Some(en.to_string());
         }
     }
@@ -612,127 +1067,6 @@ pub fn item_matches_crusher_kit(bot: &Client, item: &ItemStackData) -> bool {
 /// Раньше кит крушителя выкидывали из книги АХ. Теперь торгуем SKU `*-крушитель-1.21` → шлём.
 pub fn skip_ah_book_crusher(_bot: &Client, _item: &ItemStackData) -> bool {
     false
-}
-
-fn parse_lore_enchant(s: &str) -> Option<(String, i32)> {
-    let t = s.trim();
-    if t.is_empty() || t.len() > 80 {
-        return None;
-    }
-    // «Острота VII» / «Яд III» — имя + римская цифра в конце
-    if let Some((name_raw, lvl)) = split_trailing_roman(t) {
-        let mapped = map_lore_enchant_name(name_raw)?;
-        return Some((mapped, lvl));
-    }
-    let map = [
-        ("острота", "sharpness"),
-        ("sharpness", "sharpness"),
-        ("прочн", "unbreaking"),
-        ("unbreaking", "unbreaking"),
-        ("яд", "poison"),
-        ("poison", "poison"),
-        ("заговор огня", "fire_aspect"),
-        ("огонь", "fire_aspect"),
-        ("fire", "fire_aspect"),
-        ("отдача", "knockback"),
-        ("knockback", "knockback"),
-        ("добыча", "looting"),
-        ("looting", "looting"),
-        ("детекц", "detection"),
-        ("detection", "detection"),
-        ("вампир", "vampirism"),
-        ("тяж", "heavy"),
-        ("heavy", "heavy"),
-        ("нестабил", "unstable"),
-    ];
-    let low = t.to_lowercase();
-    for (pat, canon) in map {
-        if low.contains(pat) {
-            let lvl = roman_or_digit(&low).unwrap_or(1);
-            return Some((canon.to_string(), lvl));
-        }
-    }
-    None
-}
-
-fn split_trailing_roman(s: &str) -> Option<(&str, i32)> {
-    let s = s.trim();
-    let (name, roman) = s.rsplit_once(' ')?;
-    let roman = roman.trim();
-    if !matches!(
-        roman,
-        "I" | "II" | "III" | "IV" | "V" | "VI" | "VII" | "VIII" | "IX" | "X"
-            | "i" | "ii" | "iii" | "iv" | "v" | "vi" | "vii" | "viii" | "ix" | "x"
-    ) {
-        return None;
-    }
-    let lvl = roman_or_digit(&roman.to_lowercase())?;
-    let name = name.trim();
-    if name.is_empty() {
-        return None;
-    }
-    Some((name, lvl))
-}
-
-fn map_lore_enchant_name(raw: &str) -> Option<String> {
-    if let Some(m) = map_custom_ru(raw) {
-        return Some(m);
-    }
-    let low = raw.to_lowercase();
-    // FunTime RU display → как minecraft-data / каталог
-    let map = [
-        ("острота", "sharpness"),
-        ("прочность", "unbreaking"),
-        ("заговор огня", "fire_aspect"),
-        ("огненный аспект", "fire_aspect"),
-        ("аспект огня", "fire_aspect"),
-        ("отдача", "knockback"),
-        ("добыча", "looting"),
-        ("починка", "mending"),
-        ("эффективность", "efficiency"),
-        ("удача", "fortune"),
-        ("шелковое касание", "silk_touch"),
-        ("щёлкающее касание", "silk_touch"),
-        ("тягун", "knockback"),
-        ("бич членистоногих", "bane_of_arthropods"),
-        ("небесная кара", "smite"),
-        ("охран", "protection"),
-        ("шипы", "thorns"),
-        ("подводник", "respiration"),
-        ("родство с водой", "aqua_affinity"),
-    ];
-    for (pat, canon) in map {
-        if low == pat || low.contains(pat) {
-            return Some(canon.to_string());
-        }
-    }
-    if raw.contains(':') || raw.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Some(raw.to_string());
-    }
-    None
-}
-
-fn roman_or_digit(s: &str) -> Option<i32> {
-    for (r, n) in [
-        ("viii", 8),
-        ("vii", 7),
-        ("vi", 6),
-        ("iv", 4),
-        ("v", 5),
-        ("iii", 3),
-        ("ii", 2),
-        ("i", 1),
-    ] {
-        if s.contains(r) {
-            return Some(n);
-        }
-    }
-    for c in s.chars().rev() {
-        if c.is_ascii_digit() {
-            return c.to_digit(10).map(|d| d as i32);
-        }
-    }
-    None
 }
 
 /// Как 4narek-old `getSlotInfo`.
@@ -805,7 +1139,10 @@ pub fn get_slot_kind(
         .and_then(|v| v.as_f64())
         .or_else(|| cfg.get("book_mid").and_then(|v| v.as_f64()))
         .unwrap_or(0.0);
-    let sell = price_with_durability(price_sell, durability_percent(item));
+        let mending = have
+        .iter()
+        .any(|(n, _)| enchant_names_match(n, "minecraft:mending"));
+    let sell = price_with_durability_mending(price_sell, durability_percent(item), mending);
     if sell <= 0.0 {
         return SlotKind::Trash;
     }
@@ -816,6 +1153,12 @@ pub fn get_slot_kind(
         nacenka,
         book_floor,
         book_mid,
+        rate_per_hour: cfg
+            .get("ratePerHour")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0),
+        held: cfg.get("held").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        score_ref: cfg.get("scoreRef").and_then(|v| v.as_f64()).unwrap_or(0.0),
     })
 }
 
@@ -1005,18 +1348,16 @@ fn normalize_enchant_name(name: &str) -> String {
     if n == "sweeping_edge" {
         return "minecraft:sweeping_edge".into();
     }
+    if let Some(mapped) = canonicalize_custom_enchant(&n) {
+        return mapped;
+    }
     if n.contains(':') {
         return n;
     }
-    // ваниль → minecraft:*; кастом (poison, heavy) без префикса
-    match n.as_str() {
-        "poison" | "vampirism" | "heavy" | "unstable" | "detection" | "buldozing" | "magnet"
-        | "web" | "smelting" | "skilled" | "jumping" | "sniper" | "oxidation" => n,
-        _ => format!("minecraft:{n}"),
-    }
+    format!("minecraft:{n}")
 }
 
-fn enchant_names_match(a: &str, b: &str) -> bool {
+pub fn enchant_names_match(a: &str, b: &str) -> bool {
     normalize_enchant_name(a) == normalize_enchant_name(b)
 }
 
@@ -1047,4 +1388,174 @@ fn kind_id_from_debug(s: &str) -> String {
 
 pub fn present(item: &ItemStack) -> Option<&ItemStackData> {
     item.as_present()
+}
+
+#[cfg(test)]
+mod custom_enchant_tests {
+    use super::*;
+    use simdnbt::owned::{Nbt, NbtCompound, NbtList};
+
+    fn nbt_root(c: NbtCompound) -> Nbt {
+        Nbt::new("".into(), c)
+    }
+
+    fn lvl(got: &[(String, i32)], name: &str) -> i32 {
+        got.iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, l)| *l)
+            .unwrap_or(0)
+    }
+
+    #[test]
+    fn bukkit_minecraft_type_ru() {
+        let mut ench = NbtCompound::new();
+        ench.insert("minecraft:type", "Яд");
+        ench.insert("minecraft:level", 2i32);
+        let mut bukkit = NbtCompound::new();
+        bukkit.insert(
+            "minecraft:custom-enchantments",
+            NbtList::Compound(vec![ench]),
+        );
+        let mut root = NbtCompound::new();
+        root.insert("PublicBukkitValues", NbtTag::Compound(bukkit));
+        let got = extract_custom_enchants_from_nbt(&nbt_root(root));
+        assert_eq!(lvl(&got, "poison"), 2);
+    }
+
+    #[test]
+    fn namespaced_english_and_lowercase_ru() {
+        let mut a = NbtCompound::new();
+        a.insert("type", "minecraft:poison");
+        a.insert("level", 2i32);
+        let mut b = NbtCompound::new();
+        b.insert("id", "яд");
+        b.insert("lvl", "III");
+        let mut c = NbtCompound::new();
+        c.insert("minecraft:type", "Детекция");
+        c.insert("minecraft:level", 1i16);
+        let mut root = NbtCompound::new();
+        root.insert("custom_enchantments", NbtList::Compound(vec![a, b, c]));
+        let got = extract_custom_enchants_from_nbt(&nbt_root(root));
+        assert_eq!(lvl(&got, "poison"), 3);
+        assert_eq!(lvl(&got, "detection"), 1);
+    }
+
+    #[test]
+    fn pair_without_enchant_parent_key() {
+        let mut inner = NbtCompound::new();
+        inner.insert("minecraft:type", "Бульдозер");
+        inner.insert("minecraft:level", 2i32);
+        let mut wrap = NbtCompound::new();
+        wrap.insert("whatever", NbtTag::Compound(inner));
+        let got = extract_custom_enchants_from_nbt(&nbt_root(wrap));
+        assert_eq!(lvl(&got, "buldozing"), 2);
+    }
+
+    #[test]
+    fn string_list_under_enchant_key() {
+        let mut root = NbtCompound::new();
+        root.insert(
+            "custom-enchantments",
+            NbtList::String(vec!["Яд II".into(), "detection:3".into()]),
+        );
+        let got = extract_custom_enchants_from_nbt(&nbt_root(root));
+        assert_eq!(lvl(&got, "poison"), 2);
+        assert_eq!(lvl(&got, "detection"), 3);
+    }
+
+    #[test]
+    fn lore_garbage_and_vanilla_not_custom() {
+        let mut junk = NbtCompound::new();
+        junk.insert("minecraft:type", "Острота");
+        junk.insert("minecraft:level", 7i32);
+        let mut lore = NbtCompound::new();
+        lore.insert("text", "Яд II");
+        lore.insert("Продавец:", "Nick");
+        let mut root = NbtCompound::new();
+        root.insert("minecraft:custom-enchantments", NbtList::Compound(vec![junk]));
+        root.insert("display", NbtTag::Compound(lore));
+        let got = extract_custom_enchants_from_nbt(&nbt_root(root));
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn config_poison_matches_namespaced() {
+        assert!(enchant_names_match("minecraft:poison", "poison"));
+        assert!(enchant_names_match("Яд", "poison"));
+        assert!(!enchant_names_match("minecraft:sharpness", "poison"));
+    }
+
+    #[test]
+    fn nbt_json_keeps_bukkit_keys() {
+        let mut ench = NbtCompound::new();
+        ench.insert("minecraft:type", "Яд");
+        ench.insert("minecraft:level", 2i32);
+        let mut bukkit = NbtCompound::new();
+        bukkit.insert(
+            "minecraft:custom-enchantments",
+            NbtList::Compound(vec![ench]),
+        );
+        let mut root = NbtCompound::new();
+        root.insert("PublicBukkitValues", NbtTag::Compound(bukkit));
+        let j = nbt_to_json(&nbt_root(root));
+        let s = j.to_string();
+        assert!(s.contains("PublicBukkitValues"), "{s}");
+        assert!(s.contains("custom-enchantments"), "{s}");
+        assert!(s.contains("Яд"), "{s}");
+    }
+
+    #[test]
+    fn lore_dump_style_pochti() {
+        let lines = [
+            "Вампиризм I",
+            "Окисление I",
+            "Яд I",
+            "Детекция I",
+            "Опытный II",
+            " ➥ Нажмите, чтобы купить",
+            "$ Ценa: $4,499,000",
+            "⭐ Продавец: someone",
+        ]
+        .map(str::to_string);
+        let got = extract_custom_enchants_from_lore_lines(&lines);
+        assert_eq!(lvl(&got, "poison"), 1);
+        assert_eq!(lvl(&got, "detection"), 1);
+        assert_eq!(lvl(&got, "vampirism"), 1);
+        assert_eq!(lvl(&got, "oxidation"), 1);
+        assert_eq!(lvl(&got, "skilled"), 2);
+        assert_eq!(got.len(), 5);
+    }
+
+    #[test]
+    fn lore_scam_not_substring_or_name() {
+        let lines = [
+            "Меч с Яд II",
+            "Острота VII",
+            "Яд II и ещё текст",
+        ]
+        .map(str::to_string);
+        let got = extract_custom_enchants_from_lore_lines(&lines);
+        assert!(got.is_empty(), "{got:?}");
+    }
+
+    #[test]
+    fn lore_skip_plain_rename_keeps_other_lines() {
+        let rename = Some("Яд II");
+        let mut out = Vec::new();
+        push_split_lines("Яд II", rename, &mut out);
+        push_split_lines("Окисление I", rename, &mut out);
+        push_split_lines("Яд I", rename, &mut out);
+        let got = extract_custom_enchants_from_lore_lines(&out);
+        assert_eq!(lvl(&got, "poison"), 1);
+        assert_eq!(lvl(&got, "oxidation"), 1);
+        assert_ne!(lvl(&got, "poison"), 2);
+    }
+
+    #[test]
+    fn lore_mega_bulldozer_no_level() {
+        let lines = ["Магнит", "Мега-бульдозер"].map(str::to_string);
+        let got = extract_custom_enchants_from_lore_lines(&lines);
+        assert_eq!(lvl(&got, "magnet"), 1);
+        assert_eq!(lvl(&got, "mega_buldozing"), 1);
+    }
 }

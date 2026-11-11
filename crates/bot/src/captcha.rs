@@ -399,15 +399,26 @@ pub async fn handle_captcha_login(
         let mut captured_png: Option<Vec<u8>> = None;
         let mut fingerprint = String::new();
         let mut seq_at_capture = 0u64;
+        // на таймаут: что видели в последний момент (иначе «не собрали PNG» ничего не говорит)
+        let mut last_frames = 0usize;
+        let mut last_wall = 0usize;
+        let mut last_maps = 0usize;
+        let mut last_seq = 0u64;
+        let mut last_err = String::new();
 
         while Instant::now() < deadline {
             let frames = collect_frames(bot);
             let maps_snap = maps.lock().clone();
+            // пик, а не последнее значение: после кика рамки пропадают и счётчики обнуляются
+            last_frames = last_frames.max(frames.len());
+            last_maps = last_maps.max(maps_snap.maps.len());
+            last_seq = last_seq.max(maps_snap.seq);
             if attempt > 1 && maps_snap.seq <= min_map_seq {
                 tokio::time::sleep(Duration::from_millis(400)).await;
                 continue;
             }
             let wall = pick_wall(&frames, &maps_snap);
+            last_wall = last_wall.max(wall.len());
             if wall.len() >= MIN_FRAMES {
                 fingerprint = wall_fingerprint(&wall);
                 if prev_fp.as_ref() == Some(&fingerprint) && attempt > 1 {
@@ -423,7 +434,20 @@ pub async fn handle_captcha_login(
                         break;
                     }
                     Err(e) => {
-                        warn!("капча assemble: {e:#}");
+                        last_err = format!("{e:#}");
+                        // seq прихода данных каждой карты: если стена из двух «поколений»
+                        // (карты старой и новой капчи вперемешку), швы не сойдутся
+                        let mut ids: Vec<(i32, u64)> = wall
+                            .iter()
+                            .map(|f| {
+                                (f.map_id, maps_snap.updated_at.get(&f.map_id).copied().unwrap_or(0))
+                            })
+                            .collect();
+                        ids.sort_by_key(|(_, s)| *s);
+                        warn!(
+                            "капча assemble: {e:#} | карты стены (id, seq прихода): {ids:?}, всего пакетов {}",
+                            maps_snap.seq
+                        );
                     }
                 }
             }
@@ -431,7 +455,16 @@ pub async fn handle_captcha_login(
         }
 
         let Some(png) = captured_png else {
-            warn!("капча → не собрали PNG (попытка {attempt})");
+            warn!(
+                "капча → не собрали PNG (попытка {attempt}): рамок с картой {last_frames}, \
+                 с загруженной картой {last_wall} (нужно ≥{MIN_FRAMES}), карт в кэше {last_maps}, \
+                 map-пакетов {last_seq}{}",
+                if last_err.is_empty() {
+                    String::new()
+                } else {
+                    format!(", последняя ошибка склейки: {last_err}")
+                }
+            );
             continue;
         };
         prev_fp = Some(fingerprint);

@@ -7,8 +7,8 @@ Rust-порт орка + воркера на **Azalea** (MC 1.21.11). Своя �
 | Файл | Что |
 |---|---|
 | `orch.json` | анка, `farm_root` (по умолчанию `.`), Go WS, local_mode |
-| `{farm}/bots/{an}b.json` | список ботов |
-| `{farm}/ip.json` | прокси слотов (`502-1`…) |
+| `{farm}/bots/{an}b.json` | список ботов; прокси — поле `proxy` (`socks5://user:pass@host:port`) у каждого бота |
+| `{farm}/ip.json` | запасной вариант: слоты (`502-1`…) для ботов с полем `ip` вместо `proxy`; овнеры им не пользуются |
 | `{farm}/clan-owners.json` | овнер анки |
 | `{farm}/owner-ip.json` | прокси овнера (для clan-setup) |
 

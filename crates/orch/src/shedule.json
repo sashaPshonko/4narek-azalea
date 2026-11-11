@@ -1,0 +1,12 @@
+{
+    "long_break": {
+      "min_hours": 8.0,
+      "max_hours": 10.0
+    },
+    "short_breaks": {
+      "count": 2,
+      "min_minutes": 30,
+      "max_minutes": 120
+    },
+    "hash_salt": "default"
+  }

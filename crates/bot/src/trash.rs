@@ -48,8 +48,9 @@ pub async fn drop_trash(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState
             return false;
         }
         if let Some(handle) = bot.open_inventory() {
+            delay::rnd("HOTBAR_DELAY").await;
             handle.left_click(idx);
-            delay::rnd("POLL").await;
+            delay::rnd("SELL_HOTBAR").await;
             handle.click(azalea_inventory::operations::PickupClick::LeftOutside);
             delay::rnd("POLL").await;
             drop(handle);
@@ -67,6 +68,7 @@ pub async fn do_rtp_if_needed(bot: &Client, state: &Arc<Mutex<BotState>>) {
     if !state.lock().need_rtp && !state.lock().has_dangerous_trash {
         return;
     }
+    delay::rnd("BASE_DELAY").await;
     crate::cmd::say(bot, "/rtp");
     delay::rnd("RTP").await;
     state.lock().need_rtp = false;

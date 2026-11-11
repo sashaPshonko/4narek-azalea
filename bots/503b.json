@@ -1,32 +1,32 @@
 [
   {
-    "username": "kjwsds33jh",
-    "password": "ggggg",
+    "username": "funopomenog",
+    "password": "ddregbie",
     "anarchy": 503,
     "type": "4narek-old",
-    "item": "netherite sword",
-    "goType": "netherite_sword-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "503-1"
+    "proxy": "socks5://zQZ9XM:C3ck7E@170.83.236.237:8000"
   },
   {
-    "username": "kn3232j44n2",
-    "password": "ggggg",
+    "username": "korapuxazag",
+    "password": "hgvxqbwp",
     "anarchy": 503,
     "type": "4narek-old",
-    "item": "netherite sword",
-    "goType": "netherite_sword-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "503-2"
+    "proxy": "socks5://GcknGW:uemBGK@170.83.236.133:8000"
   },
   {
-    "username": "bhb76sd44343hd",
-    "password": "ggggg",
+    "username": "paderudabug",
+    "password": "vkxbrjaa",
     "anarchy": 503,
     "type": "4narek-old",
-    "item": "netherite sword",
-    "goType": "netherite_sword-1.21",
+    "item": "netherite",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "ip": "503-3"
+    "proxy": "socks5://zQZ9XM:C3ck7E@170.83.238.68:8000"
   }
 ]
