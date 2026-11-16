@@ -5,17 +5,17 @@
     "anarchy": 509,
     "type": "4narek-old",
     "item": "netherite",
-    "goType": "invis-1.21",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
     "proxy": "socks5://GcknGW:uemBGK@170.83.237.93:8000"
   },
   {
-    "username": "vobimuzisul",
-    "password": "mbctcstw",
+    "username": "kegilujuro",
+    "password": "ymlcavch",
     "anarchy": 509,
     "type": "4narek-old",
     "item": "netherite",
-    "goType": "invis-1.21",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
     "proxy": "socks5://GcknGW:uemBGK@170.83.236.148:8000"
   },
@@ -25,7 +25,7 @@
     "anarchy": 509,
     "type": "4narek-old",
     "item": "netherite",
-    "goType": "invis-1.21",
+    "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
     "proxy": "socks5://GcknGW:uemBGK@170.83.237.8:8000"
   }
