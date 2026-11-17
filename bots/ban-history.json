@@ -395,5 +395,21 @@
     "replaced_by": "wovatekir",
     "schedule": "v11-test508",
     "reason": "Пункт 4.3.1 AB, 16.11.2026 03:07:42"
+  },
+  "panujozefub": {
+    "username": "panujozefub",
+    "anarchy": 503,
+    "banned_at": "1794885862",
+    "replaced_by": "quiraxemo",
+    "schedule": "v9",
+    "reason": "Пункт 4.3, 17.11.2026 06:23:24"
+  },
+  "wovatekir": {
+    "username": "wovatekir",
+    "anarchy": 508,
+    "banned_at": "1794885862",
+    "replaced_by": "pexunilav",
+    "schedule": "v11-test508",
+    "reason": "Пункт 4.3.1 AB, 17.11.2026 (v11-test508)"
   }
 }
