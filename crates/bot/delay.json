@@ -7,7 +7,6 @@
   "WAIT_ANARCHY": 11000,
   "HOTBAR_DELAY": { "min": 500, "max": 1500 },
   "SELL_HOTBAR": { "min": 500, "max": 1300 },
-  "SELL_CONFIRM": { "min": 700, "max": 1800 },
   "POLL_WALK": { "min": 100, "max": 300 },
   "WINDOW_DELAY": { "min": 1500, "max": 4500 },
   "STORAGE_ENTER": { "min": 1000, "max": 2000 },

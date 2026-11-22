@@ -9,8 +9,6 @@ use serde_json::Value;
 
 static TIMING: OnceLock<Value> = OnceLock::new();
 static AH_TEMPO: OnceLock<AhTempoProfile> = OnceLock::new();
-/// Личный коэффициент темпа продажи (0.85–1.35), по хешу ника: ритм у ботов разный.
-static SELL_SCALE: OnceLock<f64> = OnceLock::new();
 
 /// Темп покупки АХ — два независимых диапазона по строкам.
 /// row=1 (слот 0–8)  → row1_min..=row1_max
@@ -57,13 +55,7 @@ fn tempo_from_env() -> Option<AhTempoProfile> {
     })
 }
 
-pub fn init_bot_delay_profile(username: &str) {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in username.bytes() {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    let _ = SELL_SCALE.set(0.85 + (h % 1000) as f64 / 1000.0 * 0.5);
+pub fn init_bot_delay_profile(_username: &str) {
     match tempo_from_env() {
         Some(p) => {
             tracing::info!("темп покупки из AH_BUY_TEMPO: {p:?}");
@@ -141,11 +133,6 @@ pub fn get_ms(key: &str) -> u64 {
         .get(key)
         .unwrap_or_else(|| panic!("нет задержки: {key}"));
     let mut rng = rand::thread_rng();
-    let scale = if key.starts_with("SELL_") {
-        SELL_SCALE.get().copied().unwrap_or(1.0)
-    } else {
-        1.0
-    };
     if let Some(n) = range.as_u64() {
         n
     } else if let Some(n) = range.as_i64() {
@@ -160,7 +147,7 @@ pub fn get_ms(key: &str) -> u64 {
             .and_then(|v| v.as_u64().or_else(|| v.as_i64().map(|i| i.max(0) as u64)))
             .unwrap_or(min);
         let v = if max <= min { min } else { rng.gen_range(min..=max) };
-        (v as f64 * scale).round() as u64
+        v
     }
 }
 

@@ -218,7 +218,7 @@ pub async fn sell_pass(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>
                 s.held_durability = Some(dur);
                 s.sell_ack = SellAck::Waiting;
             }
-            delay::rnd("SELL_CONFIRM").await;
+            delay::rnd("BASE_DELAY").await;
             cmd::say(bot, format!("/ah sell {price_i}"));
 
             let mut ack = wait_sell_ack(
@@ -275,7 +275,7 @@ pub async fn sell_pass(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>
                         delay::SELL_SLOT_MAX_ATTEMPTS
                     );
                     if attempt < delay::SELL_SLOT_MAX_ATTEMPTS && !slot_gone() {
-                        delay::rnd("SELL_CONFIRM").await;
+                        delay::rnd("BASE_DELAY").await;
                         continue;
                     }
                     break;
