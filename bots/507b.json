@@ -7,7 +7,7 @@
     "item": "netherite",
     "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "proxy": "socks5://6beYyN:ov42ZE@170.83.239.23:8000"
+    "proxy": "socks5://TYFbhw:pcBesb@170.83.236.12:8000"
   },
   {
     "username": "GLOEPI102",
@@ -17,7 +17,7 @@
     "item": "netherite",
     "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "proxy": "socks5://6beYyN:ov42ZE@170.83.237.228:8000"
+    "proxy": "socks5://TYFbhw:pcBesb@170.83.236.165:8000"
   },
   {
     "username": "losopavama",
@@ -27,6 +27,6 @@
     "item": "netherite",
     "goType": "netherite-1.21",
     "clanBalanceLimit": 10,
-    "proxy": "socks5://6beYyN:ov42ZE@170.83.236.15:8000"
+    "proxy": "socks5://TYFbhw:pcBesb@170.83.237.241:8000"
   }
 ]

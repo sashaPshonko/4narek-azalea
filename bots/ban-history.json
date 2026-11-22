@@ -563,5 +563,53 @@
     "replaced_by": "dipamomeja (из питомника, ~1,2 сут прогрева)",
     "schedule": "v9 + джиттер ±20 мин",
     "reason": "Пункт 4.3.1 AB, 21.11.2026 (22:06 МСК), волна 21.11"
+  },
+  "lozigegima": {
+    "username": "lozigegima",
+    "anarchy": 503,
+    "banned_at": "1795340327",
+    "replaced_by": "wegudacik (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 22.11.2026 12:37 МСК"
+  },
+  "repapumiza": {
+    "username": "repapumiza",
+    "anarchy": 503,
+    "banned_at": "1795340847",
+    "replaced_by": "pafoniwaga (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 22.11.2026 12:46 МСК"
+  },
+  "hijiokoplik": {
+    "username": "hijiokoplik",
+    "anarchy": 504,
+    "banned_at": "1795309690",
+    "replaced_by": "hizazizan (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 22.11.2026 04:08 МСК"
+  },
+  "vahisobife": {
+    "username": "vahisobife",
+    "anarchy": 504,
+    "banned_at": "1795360606",
+    "replaced_by": "sahobuxufi (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 22.11.2026 18:16 МСК"
+  },
+  "butezider": {
+    "username": "butezider",
+    "anarchy": 506,
+    "banned_at": "1795309318",
+    "replaced_by": "zokotenati (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 21.11.2026 23:43 МСК"
+  },
+  "gulunuful": {
+    "username": "gulunuful",
+    "anarchy": 506,
+    "banned_at": "1795324150",
+    "replaced_by": "hukulinilar (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 22.11.2026 08:08 МСК"
   }
 }
