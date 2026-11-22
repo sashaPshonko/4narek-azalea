@@ -515,6 +515,7 @@ fn inventory_report(bot: &Client) -> String {
 async fn fill_hotbar(bot: &Client) -> usize {
     let mut placed = 0;
     let mut why = String::new();
+    let mut handle = None;
     for _ in 0..12 {
         let Some(slots) = safe_inv::try_player_slots(bot) else {
             why = "меню игрока недоступно".into();
@@ -538,14 +539,22 @@ async fn fill_hotbar(bot: &Client) -> usize {
         };
         let count = slots.get(src).and_then(is_potion).unwrap_or(0).max(1) as usize;
 
-        if safe_inv::try_close(bot) {
-            delay::rnd("POLL").await;
+        // Инвентарь открываем один раз на всю раскладку и закрываем один раз в конце (как клиент: E → клики → Esc),
+        // а не на каждый стак: лишние ContainerClose 0 между перекладываниями у живого игрока не бывает.
+        if handle.is_none() {
+            if safe_inv::try_close(bot) {
+                delay::rnd("POLL").await;
+            }
+            let Some(h) = bot.open_inventory() else {
+                why = "не открылся инвентарь игрока (open_inventory = None)".into();
+                break;
+            };
+            delay::rnd("HOTBAR_DELAY").await;
+            handle = Some(h);
+        } else {
+            delay::rnd("HOTBAR_DELAY").await; // пауза между перекладываниями
         }
-        let Some(h) = bot.open_inventory() else {
-            why = "не открылся инвентарь игрока (open_inventory = None)".into();
-            break;
-        };
-        delay::rnd("HOTBAR_DELAY").await;
+        let Some(h) = handle.as_ref() else { break };
         h.left_click(src);
         delay::rnd("POLL").await;
         if count == 1 {
@@ -564,8 +573,11 @@ async fn fill_hotbar(bot: &Client) -> usize {
             }
         }
         delay::rnd("SELL_HOTBAR").await;
-        drop(h);
-        tokio::time::sleep(Duration::from_millis(350)).await;
+    }
+    if let Some(h) = handle {
+        // от последнего клика до закрытия у живого игрока ≈0,5 с (записи бот-вью)
+        tokio::time::sleep(Duration::from_millis(350 + rand::random::<u64>() % 500)).await;
+        drop(h); // ContainerClose 0 — один раз на всю раскладку
     }
     if placed == 0 {
         warn!("инвиз → не смог разложить зелья по хотбару: {why}; {}", inventory_report(bot));

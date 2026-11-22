@@ -32,6 +32,23 @@ pub fn try_close(bot: &Client) -> bool {
     true
 }
 
+/// Закрыть инвентарь игрока (id 0) пакетом `ServerboundContainerClose { 0 }`.
+///
+/// Так делает ванильный клиент: открытие инвентаря (E) пакета не шлёт, а закрытие (E/Esc) шлёт. У настоящего
+/// игрока такие закрытия — больше половины всех `close_window` в записях бот-вью (20 из 35, `windowId = 0`).
+/// После кликов по инвентарю через `try_handle` (броня, перенос в хотбар) закрытия не было вообще; `try_close`
+/// для id 0 ничего не отправляет. `true` = пакет ушёл.
+pub fn close_player_inventory(bot: &Client) -> bool {
+    let Some(inv) = bot.get_component::<Inventory>() else {
+        return false;
+    };
+    if inv.id != 0 {
+        return false;
+    }
+    ContainerHandleRef::new(0, bot.clone()).close();
+    true
+}
+
 /// Слоты контейнера без инвентаря игрока — как `ContainerHandleRef::contents`.
 pub fn try_contents(bot: &Client) -> Option<Vec<ItemStack>> {
     let inv = bot.get_component::<Inventory>()?;

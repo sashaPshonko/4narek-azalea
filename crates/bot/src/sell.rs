@@ -744,82 +744,90 @@ async fn wait_sell_ack(state: &Arc<Mutex<BotState>>, timeout: Duration) -> SellA
 }
 
 /// Заполняет пустые/мусорные слоты хотбара каталоговым товаром (JS moveToHotBar).
+///
+/// Как живой игрок: всё перекладывание — одно открытие инвентаря (E → клики → Esc), один `ContainerClose 0`
+/// в конце. Раньше инвентарь «открывался» и закрывался на каждый предмет, а слот в руке переключался внутри —
+/// при открытом инвентаре игрок так сделать не может (слот перед `/ah sell` выбирает `sell_pass`).
 async fn fill_hotbar_from_backpack(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>>) {
     if state.lock().has_dangerous_trash {
         return;
     }
     let _ = trash::drop_trash(bot, boot, state).await;
+
+    let mut handle = None;
     for _ in 0..9 {
-        if !move_one_backpack_to_hotbar(bot, boot, state).await {
+        let Some(mv) = plan_backpack_move(bot, boot, state) else {
             break;
+        };
+        if handle.is_none() {
+            if crate::safe_inv::try_close(bot) {
+                delay::rnd("POLL").await;
+            }
+            let Some(h) = bot.open_inventory() else {
+                break;
+            };
+            delay::rnd("HOTBAR_DELAY").await;
+            handle = Some(h);
+        } else {
+            delay::rnd("HOTBAR_DELAY").await; // пауза между предметами
         }
+        let Some(h) = handle.as_ref() else { break };
+        if mv.drop_hot_first {
+            // в целевом слоте хотбара мусор — выбросить его за окно
+            h.left_click(mv.hot);
+            delay::rnd("SELL_HOTBAR").await;
+            h.click(azalea_inventory::operations::PickupClick::LeftOutside);
+            delay::rnd("HOTBAR_DELAY").await;
+        }
+        h.left_click(mv.src);
+        delay::rnd("SELL_HOTBAR").await;
+        h.left_click(mv.hot);
+        info!("продажа → перенёс в хотбар");
+        delay::rnd("POLL").await;
+    }
+    if let Some(h) = handle {
+        // от последнего клика до закрытия у живого игрока ≈0,5 с (записи бот-вью)
+        tokio::time::sleep(std::time::Duration::from_millis(350 + rand::random::<u64>() % 500)).await;
+        drop(h); // ContainerClose 0 — один раз на всю раскладку
     }
 }
 
-async fn move_one_backpack_to_hotbar(
-    bot: &Client,
-    boot: &BotBoot,
-    state: &Arc<Mutex<BotState>>,
-) -> bool {
+struct BackpackMove {
+    /// куда в хотбаре (36–44)
+    hot: usize,
+    /// откуда из рюкзака (9–35)
+    src: usize,
+    /// в `hot` лежит мусор — сначала выбросить
+    drop_hot_first: bool,
+}
+
+/// Следующий перенос «рюкзак → хотбар» по текущему инвентарю: пустой или мусорный слот хотбара и каталоговый
+/// товар в рюкзаке. `None` — переносить нечего.
+fn plan_backpack_move(bot: &Client, boot: &BotBoot, state: &Arc<Mutex<BotState>>) -> Option<BackpackMove> {
     let catalog_all = state.lock().catalog_all.clone();
     let slots = player_inventory_slots(bot);
-    let mut target_hot: Option<usize> = None;
+    let mut target: Option<(usize, bool)> = None;
     for i in HOTBAR_START..=HOTBAR_END {
         let Some(data) = slots.get(i).and_then(present) else {
-            target_hot = Some(i);
+            target = Some((i, false));
             break;
         };
         match get_slot_kind(bot, data, &catalog_all, &boot.go_type) {
             SlotKind::Trash => {
-                target_hot = Some(i);
+                target = Some((i, true));
                 break;
             }
             SlotKind::Trade(_) | SlotKind::Foreign { .. } => continue,
         }
     }
-    let Some(hot) = target_hot else {
-        return false;
-    };
-    if let Some(data) = slots.get(hot).and_then(present) {
-        if matches!(
-            get_slot_kind(bot, data, &catalog_all, &boot.go_type),
-            SlotKind::Trash
-        ) {
-            bot.set_selected_hotbar_slot((hot - HOTBAR_START) as u8);
-            if crate::safe_inv::try_close(bot) {
-                delay::rnd("POLL").await;
-            }
-            if let Some(handle) = bot.open_inventory() {
-                delay::rnd("HOTBAR_DELAY").await;
-                handle.left_click(hot);
-                delay::rnd("SELL_HOTBAR").await;
-                handle.click(azalea_inventory::operations::PickupClick::LeftOutside);
-                delay::rnd("POLL").await;
-                drop(handle);
-            }
-            delay::rnd("500MS").await;
-        }
-    }
-    let slots = player_inventory_slots(bot);
-    for idx in 9..36 {
-        let Some(data) = slots.get(idx).and_then(present) else {
-            continue;
-        };
-        if match_slot_info(bot, data, &catalog_all, &boot.go_type).is_none() {
-            continue;
-        }
-        let Some(inv) = crate::safe_inv::try_handle(bot) else {
-            return false;
-        };
-        delay::rnd("HOTBAR_DELAY").await;
-        inv.left_click(idx);
-        delay::rnd("SELL_HOTBAR").await;
-        inv.left_click(hot);
-        info!("продажа → перенёс в хотбар");
-        delay::rnd("HOTBAR_DELAY").await;
-        return true;
-    }
-    false
+    let (hot, drop_hot_first) = target?;
+    let src = (9..36).find(|&idx| {
+        slots
+            .get(idx)
+            .and_then(present)
+            .is_some_and(|data| match_slot_info(bot, data, &catalog_all, &boot.go_type).is_some())
+    })?;
+    Some(BackpackMove { hot, src, drop_hot_first })
 }
 
 fn sell_slot_is_empty(

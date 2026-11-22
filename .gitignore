@@ -5,3 +5,13 @@
 *.png
 .DS_Store
 .aider*
+*.log
+/logs/
+/rent-state/
+/mynick.log
+/mynick.lock
+/invis-log/
+bindings.json.lock
+/nursery-state.json
+/nursery-status.json
+/bot-slots.jsonl

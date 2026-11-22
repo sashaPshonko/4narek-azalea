@@ -37,6 +37,10 @@ pub struct BotState {
 
     pub shutdown: bool,
 
+    /// Перерыв «в хабе»: бот онлайн, но стоит в /hub и ничего не делает.
+    pub parked: bool,
+    pub park_hub_sent: Option<std::time::Instant>,
+
     pub max_buy_price: Option<f64>,
     pub capital_keep: Option<f64>,
     pub balance: Option<f64>,
@@ -299,6 +303,8 @@ impl BotState {
             window_tick: None,
 
             shutdown: false,
+            parked: false,
+            park_hub_sent: None,
 
             max_buy_price: None,
             capital_keep: None,
@@ -516,6 +522,12 @@ impl BotState {
                 self.shutdown = true;
             }
 
+            OrchCmd::Park { on } => {
+                self.parked = on;
+                if !on {
+                    self.park_hub_sent = None;
+                }
+            }
             OrchCmd::Other => {}
         }
     }

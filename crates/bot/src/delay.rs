@@ -21,6 +21,10 @@ struct AhTempoProfile {
     row1_max: u32,
     row2_min: u32,
     row2_max: u32,
+    row3_min: u32,
+    row3_max: u32,
+    row4_min: u32,
+    row4_max: u32,
 }
 
 fn timing() -> &'static Value {
@@ -32,6 +36,26 @@ fn timing() -> &'static Value {
 /// Самая короткая задержка перед кликом на лот (мс). От неё зависит окно выбора между ботами в Go
 /// (lot_claims.go, 1 с): все решения о владельце лота должны дойти до клика.
 pub const AH_BUY_DELAY_MIN_MS: u32 = 2000;
+/// Нижняя граница для темпа из AH_BUY_TEMPO: окно выбора Go (1 с) + запас на дорогу бот↔Go.
+pub const AH_BUY_DELAY_FLOOR_MS: u32 = 1200;
+
+/// Темп покупки из окружения (эксперимент на одной анархии, ставится при запуске её оркестратора):
+/// `AH_BUY_TEMPO="row1_min,row1_max,row2_min,row2_max"` в мс. Без переменной — обычный темп.
+fn tempo_from_env() -> Option<AhTempoProfile> {
+    let raw = std::env::var("AH_BUY_TEMPO").ok()?;
+    let v: Vec<u32> = raw.split(',').filter_map(|x| x.trim().parse().ok()).collect();
+    let ok = (v.len() == 4 || v.len() == 8) && v[0] >= AH_BUY_DELAY_FLOOR_MS && v[0] <= v[1] && v[2] <= v[3] && v[2] >= v[0];
+    if !ok {
+        tracing::warn!("AH_BUY_TEMPO={raw:?} не принят (нужно 4 числа, row1_min >= {AH_BUY_DELAY_FLOOR_MS}) — обычный темп");
+        return None;
+    }
+    // 8 чисел: ещё строки 3 и 4 (слоты 18–26, 27–35); при 4 числах они берут диапазон 2-й строки
+    let (r3, r4) = if v.len() == 8 { ((v[4], v[5]), (v[6], v[7])) } else { ((v[2], v[3]), (v[2], v[3])) };
+    Some(AhTempoProfile {
+        row1_min: v[0], row1_max: v[1], row2_min: v[2], row2_max: v[3],
+        row3_min: r3.0, row3_max: r3.1, row4_min: r4.0, row4_max: r4.1,
+    })
+}
 
 pub fn init_bot_delay_profile(username: &str) {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
@@ -40,13 +64,32 @@ pub fn init_bot_delay_profile(username: &str) {
         h = h.wrapping_mul(0x0000_0100_0000_01b3);
     }
     let _ = SELL_SCALE.set(0.85 + (h % 1000) as f64 / 1000.0 * 0.5);
-    let _ = AH_TEMPO.set(AhTempoProfile {
-        row1_min: AH_BUY_DELAY_MIN_MS,
-        row1_max: 2400,
-        row2_min: 2400,
-        row2_max: 3000,
-    });
+    match tempo_from_env() {
+        Some(p) => {
+            tracing::info!("темп покупки из AH_BUY_TEMPO: {p:?}");
+            let _ = AH_TEMPO.set(p);
+        }
+        // обычный темп; раньше был 2000–2400 / 2400–3000 + добавок 0–600 — тот же размах без второго рандома
+        None => {
+            let _ = AH_TEMPO.set(AhTempoProfile {
+                row1_min: AH_BUY_DELAY_MIN_MS,
+                row1_max: 3000,
+                row2_min: 2400,
+                row2_max: 3600,
+                row3_min: 2400,
+                row3_max: 3600,
+                row4_min: 2400,
+                row4_max: 3600,
+            });
+        }
+    }
 }
+
+/// Самая короткая задержка клика у этого бота (мс).
+pub fn ah_buy_min_ms() -> u32 {
+    AH_TEMPO.get().map_or(AH_BUY_DELAY_MIN_MS, |p| p.row1_min)
+}
+
 
 fn ah_tempo() -> AhTempoProfile {
     *AH_TEMPO.get().unwrap_or(&AhTempoProfile {
@@ -54,6 +97,10 @@ fn ah_tempo() -> AhTempoProfile {
         row1_max: 1300,
         row2_min: 1300,
         row2_max: 1700,
+        row3_min: 1300,
+        row3_max: 1700,
+        row4_min: 1300,
+        row4_max: 1700,
     })
 }
 
@@ -70,10 +117,11 @@ pub fn ah_buy_delay_ms(slot: usize) -> u64 {
     let row = ah_row_number(slot);
     let p = ah_tempo();
     let mut rng = rand::thread_rng();
-    let (min, max) = if row <= 1 {
-        (p.row1_min, p.row1_max)
-    } else {
-        (p.row2_min, p.row2_max)
+    let (min, max) = match row {
+        0 | 1 => (p.row1_min, p.row1_max),
+        2 => (p.row2_min, p.row2_max),
+        3 => (p.row3_min, p.row3_max),
+        _ => (p.row4_min, p.row4_max),
     };
     if max <= min {
         u64::from(min)
@@ -156,3 +204,14 @@ pub async fn sell_gap() {
 /// Фиксированные константы ack/попыток из old (не в delay.json).
 pub const SELL_LIST_ACK_TIMEOUT_MS: u64 = 1000;
 pub const SELL_SLOT_MAX_ATTEMPTS: u32 = 3;
+/// Сколько строк АХ покупаем (по 9 слотов). По умолчанию 2; `AH_BUY_ROWS=4` — ещё строки 3 и 4.
+pub fn ah_buy_rows() -> usize {
+    static ROWS: OnceLock<usize> = OnceLock::new();
+    *ROWS.get_or_init(|| {
+        std::env::var("AH_BUY_ROWS")
+            .ok()
+            .and_then(|s| s.trim().parse::<usize>().ok())
+            .filter(|n| (2..=4).contains(n))
+            .unwrap_or(2)
+    })
+}

@@ -62,6 +62,7 @@ mod state;
 mod storage;
 mod titles;
 mod trash;
+mod warmup;
 mod warp;
 mod wear;
 
@@ -125,6 +126,31 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
+
+                // Перерыв в хабе: раз в 20с, пока мы ещё на анке, шлём /hub.
+                {
+                    let need = {
+                        let st = g_flush.lock();
+                        st.parked
+                            && !st.banned
+                            && !st.shutdown
+                            && st.on_anarchy
+                            && !st.captcha_busy
+                            && st
+                                .park_hub_sent
+                                .map_or(true, |t| t.elapsed() > Duration::from_secs(20))
+                    };
+                    if need {
+                        let bot_now = boot::global().bot_client.lock().clone();
+                        if let Some(bot) = bot_now {
+                            info!("перерыв → /hub");
+                            cmd::say(&bot, "/hub");
+                            g_flush.lock().park_hub_sent = Some(std::time::Instant::now());
+                            tokio::time::sleep(Duration::from_secs(3)).await;
+                            anarchy::clear_anarchy(&g_flush, "перерыв: /hub");
+                        }
+                    }
+                }
 
                 // Выравнивание балансов: приказ орка «перекинь X боту Y».
                 let peer = {
@@ -496,7 +522,9 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
                     let boot_loop = boot2.clone();
                     let inner_loop = inner.clone();
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        if let Some(icfg) = invis::config_for(&boot_loop) {
+                        if boot_loop.warmup {
+                            rt.block_on(warmup::run_loop(bot_loop, boot_loop, inner_loop));
+                        } else if let Some(icfg) = invis::config_for(&boot_loop) {
                             rt.block_on(invis::run_loop(bot_loop, boot_loop, inner_loop, icfg));
                         } else {
                             rt.block_on(ah::run_loop(bot_loop, boot_loop, inner_loop));
@@ -523,11 +551,13 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
         Event::Chat(m) => {
             let text = m.content();
             if !text.is_empty() {
-                ipc::pretty_log::line(
-                    &g.boot.username,
-                    ipc::pretty_log::LineKind::Chat,
-                    &text,
-                );
+                if !g.state.lock().parked {
+                    ipc::pretty_log::line(
+                        &g.boot.username,
+                        ipc::pretty_log::LineKind::Chat,
+                        &text,
+                    );
+                }
                 handle_chat(&bot, &text);
             }
         }

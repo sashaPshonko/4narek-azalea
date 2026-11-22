@@ -97,6 +97,26 @@ pub async fn wait_until_on_anarchy(
         return false;
     }
 
+    // Перерыв в хабе: ждём команды вернуться (бан/shutdown — выходим).
+    if state.lock().parked {
+        let mut logged = false;
+        while state.lock().parked {
+            if state.lock().banned || state.lock().shutdown {
+                return false;
+            }
+            if !logged {
+                info!("перерыв → стою в хабе");
+                logged = true;
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+        info!("перерыв кончился → шевелю мышью и на анку");
+        // Бот стоял в хабе без движений (AFK): перед /an обязательно anti-AFK жест.
+        if !state.lock().banned && !state.lock().shutdown {
+            crate::afk::un_afk(bot).await;
+        }
+    }
+
     if captcha_busy(state) && !wait_captcha_idle(state, Duration::from_secs(120)).await {
         return false;
     }

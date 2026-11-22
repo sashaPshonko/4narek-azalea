@@ -80,6 +80,19 @@ fn push_formatted(t: &FormattedText, out: &mut Vec<String>) {
     }
 }
 
+/// Эксперимент «аккуратные закупки» (pricing-experiment.json → env оркестратора): доп. маржа к наценке
+/// в % от цены продажи. Покупаем только заметно дешевле — меньше покупок, меньше следов автобая.
+fn extra_margin_pct() -> f64 {
+    static V: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("BUY_EXTRA_MARGIN_PCT")
+            .ok()
+            .and_then(|v| v.trim().parse::<f64>().ok())
+            .filter(|v| (0.0..=40.0).contains(v))
+            .unwrap_or(0.0)
+    })
+}
+
 pub fn ah_price(item: &ItemStackData) -> Option<f64> {
     // Как JS getPriceFromAhItem: только lore-строки (не custom name), по одной линии,
     // лучший score; при равном score — большее число. Не трогаем «Продавец:».
@@ -1149,7 +1162,7 @@ pub fn get_slot_kind(
     SlotKind::Trade(SlotInfo {
         id: id.to_string(),
         sell_price: sell,
-        buy_price: sell - nacenka,
+        buy_price: sell - nacenka - sell * extra_margin_pct() / 100.0,
         nacenka,
         book_floor,
         book_mid,

@@ -184,6 +184,7 @@ fn spawn_rust(farm_root: &Path, anarchy: u16, cfg: &MyNickCfg, bot_bin: &Path) -
         owner_nick: None,
         owner_reason: None,
         treasurer_nick: None,
+        warmup: false,
     };
     let log_path = farm_root.join("mynick.log");
     let log = std::fs::OpenOptions::new().create(true).append(true).open(&log_path)?;

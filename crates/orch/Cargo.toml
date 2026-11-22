@@ -7,6 +7,11 @@ edition.workspace = true
 name = "orch502"
 path = "src/main.rs"
 
+# питомник: прогрев новых ников без АХ (src/nursery.rs)
+[[bin]]
+name = "nursery502"
+path = "src/nursery.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 ipc = { path = "../ipc" }

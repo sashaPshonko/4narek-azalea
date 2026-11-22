@@ -61,6 +61,11 @@ pub struct BotBoot {
     /// (тогда обновится через `OrchCmd::TreasurerRole`).
     #[serde(default)]
     pub treasurer_nick: Option<String>,
+
+    /// Прогрев нового ника (питомник, `nursery502`): заходит на анархию, anti-AFK, прогулки по варпам,
+    /// выброс мусора — без АХ, хранилища, продаж, `/pay` и роли казначея.
+    #[serde(default)]
+    pub warmup: bool,
 }
 
 /// Worker → orch
@@ -184,6 +189,11 @@ pub enum OrchCmd {
     /// Нужно, чтобы орк знал, когда казначей реально всё отдал.
     #[serde(rename = "treasurer_balance_request")]
     TreasurerBalanceRequest,
+
+    /// Оркестратор → воркеру: `on=true` — уйти в /hub и молча стоять (перерыв без дисконнекта),
+    /// `on=false` — вернуться на анку.
+    #[serde(rename = "park")]
+    Park { on: bool },
 
     #[serde(rename = "shutdown")]
     Shutdown,

@@ -61,9 +61,34 @@ pub struct ScheduleConfig {
     /// казначея). `false` — ночью можно уйти в ноль онлайна.
     #[serde(default = "default_keep_cover")]
     pub keep_cover: bool,
+    /// `true` — в перерыве бот не отключается, а уходит в /hub (и молчит); на выходе из перерыва
+    /// возвращается на анку. `false` — как раньше (kill воркера).
+    #[serde(default)]
+    pub park_in_hub: bool,
+    /// То же, но только для перечисленных анархий (A/B-эксперимент).
+    #[serde(default)]
+    pub park_in_hub_anarchies: Vec<u16>,
     /// Режим «цикл»: `work_min` работы, `rest_min` перерыва, цикл повторяется без привязки к суткам.
     /// Боты анархии сдвинуты по фазе на `(work+rest)/slots`. Если задан, `slots` для перерывов не
     /// используются (кроме подсчёта слотов, если `slots` в цикле не задан).
+    #[serde(default)]
+    pub cycle: Option<CycleCfg>,
+    /// Своё расписание для отдельных анархий (ключ — номер анархии строкой, "508"). Всё, чего в
+    /// переопределении нет, берётся из общего конфига. Нужно для A/B-теста расписаний на одной анке.
+    #[serde(default)]
+    pub per_anarchy: std::collections::BTreeMap<String, AnarchyOverride>,
+}
+
+/// Переопределение расписания для одной анархии (см. `ScheduleConfig::per_anarchy`).
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+pub struct AnarchyOverride {
+    /// Заменяет `slots`; если задан без `cycle`, общий `cycle` для этой анархии отключается.
+    #[serde(default)]
+    pub slots: Option<Vec<SlotConfig>>,
+    #[serde(default)]
+    pub jitter_minutes: Option<u64>,
+    #[serde(default)]
+    pub keep_cover: Option<bool>,
     #[serde(default)]
     pub cycle: Option<CycleCfg>,
 }
@@ -121,12 +146,36 @@ impl Default for ScheduleConfig {
             jitter_minutes: default_jitter_minutes(),
             slots: default_slots(),
             keep_cover: true,
+            park_in_hub: false,
+            park_in_hub_anarchies: Vec::new(),
             cycle: None,
+            per_anarchy: Default::default(),
         }
     }
 }
 
 impl ScheduleConfig {
+    /// Конфиг с учётом `per_anarchy` для этой анархии (без переопределения — копия общего).
+    pub fn effective_for(&self, anarchy: u16) -> ScheduleConfig {
+        let mut c = self.clone();
+        if let Some(o) = self.per_anarchy.get(&anarchy.to_string()) {
+            if let Some(slots) = &o.slots {
+                c.slots = slots.clone();
+                c.cycle = o.cycle.clone();
+            } else if o.cycle.is_some() {
+                c.cycle = o.cycle.clone();
+            }
+            if let Some(j) = o.jitter_minutes {
+                c.jitter_minutes = j;
+            }
+            if let Some(k) = o.keep_cover {
+                c.keep_cover = k;
+            }
+        }
+        c.per_anarchy.clear();
+        c
+    }
+
     pub fn load(farm_root: &Path) -> Self {
         let path = farm_root.join("schedule.json");
         if path.is_file() {
@@ -169,6 +218,7 @@ pub struct Schedule {
     n_bots: usize,
     jitter_ms: u64,
     keep_cover: bool,
+    park_in_hub: bool,
     cycle: Option<CycleCfg>,
     /// Шаблоны слотов; перерывы отсортированы по началу.
     slots: Vec<Vec<BreakTpl>>,
@@ -216,6 +266,7 @@ fn build_slots(cfg: &ScheduleConfig) -> Vec<Vec<BreakTpl>> {
 
 impl Schedule {
     pub fn new(anarchy: u16, filename: &str, n_bots: usize, cfg: &ScheduleConfig) -> Self {
+        let cfg = &cfg.effective_for(anarchy);
         let salt = hash_salt(anarchy, filename, &cfg.hash_salt);
         Self {
             anarchy,
@@ -223,12 +274,17 @@ impl Schedule {
             n_bots,
             jitter_ms: cfg.jitter_minutes * MIN_MS,
             keep_cover: cfg.keep_cover,
+            park_in_hub: cfg.park_in_hub || cfg.park_in_hub_anarchies.contains(&anarchy),
             cycle: cfg.cycle.clone().filter(|c| c.work_min > 0 && c.rest_min > 0 && c.slots > 0),
             slots: build_slots(cfg),
         }
     }
 
     /// Держать ли хотя бы одного бодрствующего бота на анархии (см. `ScheduleConfig::keep_cover`).
+    pub fn park_in_hub(&self) -> bool {
+        self.park_in_hub
+    }
+
     pub fn keep_cover(&self) -> bool {
         self.keep_cover
     }
@@ -515,6 +571,26 @@ mod tests {
 
     fn cfg() -> ScheduleConfig {
         ScheduleConfig::default()
+    }
+
+    #[test]
+    fn per_anarchy_override_only_hits_that_anarchy() {
+        let raw = r#"{
+            "jitter_minutes": 0,
+            "slots": [{"short": [["13:00","18:00"]]}, {"short": [["12:00","17:00"]]}, {"short": [["05:00","10:00"]]}],
+            "per_anarchy": {"508": {"slots": [{"short": [["00:00","04:00"]]}, {"short": [["04:00","08:00"]]}, {"short": [["23:00","03:00"]]}]}}
+        }"#;
+        let c: ScheduleConfig = serde_json::from_str(raw).unwrap();
+        // 14:00 МСК: на 508 все онлайн (перерывы только ночью), на 503 хотя бы один в перерыве
+        let day = 1_800_000_000_000u64 / DAY_MS * DAY_MS;
+        let t = day - MSK_OFFSET_MS + 14 * HOUR_MS;
+        let s508 = Schedule::new(508, "508b", 3, &c);
+        assert!((0..3).all(|i| s508.is_active(i, t)));
+        let s503 = Schedule::new(503, "503b", 3, &c);
+        assert!((0..3).any(|i| !s503.is_active(i, t)));
+        // 01:00 МСК на 508: двое отдыхают
+        let n = day - MSK_OFFSET_MS + 25 * HOUR_MS;
+        assert_eq!((0..3).filter(|&i| !s508.is_active(i, n)).count(), 2);
     }
 
     #[test]

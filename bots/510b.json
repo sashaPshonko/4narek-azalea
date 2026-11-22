@@ -1,0 +1,32 @@
+[
+  {
+    "username": "ProfiKennq",
+    "password": "164969vXhcXd",
+    "anarchy": 510,
+    "type": "4narek-old",
+    "item": "netherite",
+    "goType": "netherite-1.21",
+    "clanBalanceLimit": 10,
+    "proxy": "socks5://mMPEAv:kdUc82@170.83.237.180:8000"
+  },
+  {
+    "username": "VeroToxi199",
+    "password": "9386Eoer",
+    "anarchy": 510,
+    "type": "4narek-old",
+    "item": "netherite",
+    "goType": "netherite-1.21",
+    "clanBalanceLimit": 10,
+    "proxy": "socks5://mMPEAv:kdUc82@170.83.237.199:8000"
+  },
+  {
+    "username": "dipamomeja",
+    "password": "hzjzykhe",
+    "anarchy": 510,
+    "type": "4narek-old",
+    "item": "netherite",
+    "goType": "netherite-1.21",
+    "clanBalanceLimit": 10,
+    "proxy": "socks5://mMPEAv:kdUc82@170.83.238.119:8000"
+  }
+]

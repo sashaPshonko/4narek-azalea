@@ -189,6 +189,8 @@ struct OrchState {
 
     /// Разбуженные досрочно для приёма денег: nick → конец их планового сна.
     early_wake: HashMap<String, u64>,
+    /// Воркеры, которым отправлен Park{on:true} (стоят в хабе на перерыве).
+    parked: std::collections::HashSet<String>,
 }
 
 type GoTx = mpsc::UnboundedSender<Value>;
@@ -428,6 +430,7 @@ async fn main() -> Result<()> {
     // ============ bindings.json ============
     let bindings_path = farm_root.join("bindings.json");
     let bindings = load_bindings(&bindings_path);
+    kill_orphan_workers(anarchy);
     info!(
         "bindings.json: {} записей (привязано: {})",
         bindings.len(),
@@ -462,6 +465,7 @@ async fn main() -> Result<()> {
         owes_treasurer: HashMap::new(),
         flush_waiting: std::collections::HashSet::new(),
         early_wake: HashMap::new(),
+        parked: std::collections::HashSet::new(),
     }));
 
     tokio::spawn(go_ws_loop(state.clone(), go_tx.clone(), go_rx, ws_url));
@@ -577,7 +581,13 @@ async fn main() -> Result<()> {
                 // Знаем, что привязан? Если `None` — надо проверить.
                 let needs_check = binding.is_none() || !is_bound;
 
-                if active && !running {
+                if active && running {
+                    let was_parked = st_sched.lock().await.parked.remove(name);
+                    if was_parked {
+                        info!("schedule an{an}: {name} (idx={idx}) выходит из хаба на анку");
+                        let _ = send_cmd_to(&st_sched, name, &OrchCmd::Park { on: false }).await;
+                    }
+                } else if active && !running {
                     info!("schedule an{an}: {name} (idx={idx}) возвращается");
                     if let Err(e) = spawn_worker(
                         st_sched.clone(),
@@ -591,7 +601,7 @@ async fn main() -> Result<()> {
                     }
                 } else if !active && !running {
                     // Бот в перерыве, не работает.
-                    if needs_check {
+                    if needs_check || schedule_arc.park_in_hub() {
                         // Не знаем привязку или не привязан — пробуем зайти.
                         info!(
                             "schedule an{an}: {name} (idx={idx}) в перерыве, но привязка={:?} — пробую зайти (проверка)",
@@ -656,6 +666,14 @@ async fn main() -> Result<()> {
                             );
                             continue;
                         }
+                    }
+                    if schedule_arc.park_in_hub() {
+                        let first = st_sched.lock().await.parked.insert(name.clone());
+                        if first {
+                            info!("schedule an{an}: {name} (idx={idx}) уходит в перерыв — в хаб (онлайн)");
+                            let _ = send_cmd_to(&st_sched, name, &OrchCmd::Park { on: true }).await;
+                        }
+                        continue;
                     }
                     info!("schedule an{an}: {name} (idx={idx}) уходит в перерыв (привязан)");
                     kill_worker(&st_sched, name).await;
@@ -1000,8 +1018,20 @@ async fn main() -> Result<()> {
         }
     });
 
-    tokio::signal::ctrl_c().await?;
-    info!("ctrl-c → shutdown");
+    {
+        #[cfg(unix)]
+        {
+            let mut term =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            tokio::select! {
+                r = tokio::signal::ctrl_c() => { r?; }
+                _ = term.recv() => {}
+            }
+        }
+        #[cfg(not(unix))]
+        tokio::signal::ctrl_c().await?;
+    }
+    info!("signal → shutdown");
     {
         let mut g = state.lock().await;
         g.shutting_down = true;
@@ -1027,11 +1057,68 @@ fn load_bindings(path: &Path) -> HashMap<String, bool> {
     }
 }
 
-fn save_bindings(path: &Path, map: &HashMap<String, bool>) {
-    if let Ok(raw) = serde_json::to_string_pretty(map) {
-        let _ = std::fs::write(path, raw);
+/// `bindings.json` общий для всех оркестраторов. Раньше каждый писал свою копию целиком
+/// (последний затирал чужие записи) → после рестарта у бота привязка `None`, и он не уходил в перерыв.
+/// Теперь: блокировка `bindings.json.lock`, перечитать файл, поменять ОДНУ запись, атомарно записать.
+fn save_binding(path: &Path, nick: &str, value: bool) {
+    let lock_path = path.with_extension("json.lock");
+    let lock = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path);
+    let lock = match lock {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("bindings.json lock open: {e}");
+            return;
+        }
+    };
+    if let Err(e) = lock.lock() {
+        warn!("bindings.json lock: {e}");
+        return;
+    }
+    let mut map = load_bindings(path);
+    map.insert(nick.to_string(), value);
+    if let Ok(raw) = serde_json::to_string_pretty(&map) {
+        let tmp = path.with_extension(format!("json.tmp{}", std::process::id()));
+        if std::fs::write(&tmp, raw).is_ok() {
+            if let Err(e) = std::fs::rename(&tmp, path) {
+                warn!("bindings.json rename: {e}");
+                let _ = std::fs::remove_file(&tmp);
+            }
+        }
+    }
+    let _ = lock.unlock();
+}
+
+/// Воркеры прошлого запуска этой анархии, оставшиеся без оркестратора (ppid=1): они играют без
+/// расписания и занимают ник («Игрок с таким же ником уже онлайн»). Метка — env `FARM_ANARCHY`.
+#[cfg(target_os = "linux")]
+fn kill_orphan_workers(anarchy: u16) {
+    let want = format!("FARM_ANARCHY={anarchy}");
+    let Ok(dir) = std::fs::read_dir("/proc") else { return };
+    for e in dir.flatten() {
+        let Ok(pid) = e.file_name().to_string_lossy().parse::<u32>() else { continue };
+        let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else { continue };
+        // pid (comm) state ppid ...
+        let ppid = stat
+            .rsplit_once(')')
+            .and_then(|(_, rest)| rest.split_whitespace().nth(1))
+            .and_then(|x| x.parse::<u32>().ok());
+        if ppid != Some(1) {
+            continue;
+        }
+        let Ok(env) = std::fs::read(format!("/proc/{pid}/environ")) else { continue };
+        if env.split(|b| *b == 0).any(|kv| kv == want.as_bytes()) {
+            warn!("сирота-воркер pid={pid} ({want}) — убиваю");
+            let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).status();
+        }
     }
 }
+
+#[cfg(not(target_os = "linux"))]
+fn kill_orphan_workers(_anarchy: u16) {}
 
 // ============ load: farm ============
 
@@ -1224,7 +1311,7 @@ async fn start_all(state: Arc<Mutex<OrchState>>, go_tx: GoTx, restart_tx: Restar
         let is_bound = bindings.get(name).copied() == Some(true);
         let active = schedule_arc.is_active(idx, now);
         // Спавним, если активен ИЛИ привязка не `true` (надо проверить).
-        if !active && is_bound {
+        if !active && is_bound && !schedule_arc.park_in_hub() {
             info!("{name} (idx={idx}): в перерыве и привязан, spawn пропущен");
             continue;
         }
@@ -1241,6 +1328,7 @@ async fn start_all(state: Arc<Mutex<OrchState>>, go_tx: GoTx, restart_tx: Restar
 
 async fn kill_worker(state: &Arc<Mutex<OrchState>>, username: &str) {
     let mut g = state.lock().await;
+    g.parked.remove(username);
     if let Some(mut wh) = g.workers.remove(username) {
         info!("{username}: kill_worker (перерыв)");
         let _ = wh.child.start_kill();
@@ -1292,6 +1380,7 @@ async fn spawn_worker(
                 owner_nick: None,
                 owner_reason: None,
                 treasurer_nick,
+                warmup: false,
             }
         };
         (boot, g.bot_bin.clone())
@@ -1310,6 +1399,18 @@ async fn spawn_worker(
     result
 }
 
+/// `pricing-experiment.json` рядом с schedule.json: {"508": {"extra_margin_pct": 7}} — доп. маржа закупки (% от цены
+/// продажи) для воркеров этой анархии. Нет файла/записи → 0 (поведение как раньше).
+fn experiment_extra_margin(anarchy: u16) -> f64 {
+    let Ok(raw) = std::fs::read_to_string("pricing-experiment.json") else {
+        return 0.0;
+    };
+    serde_json::from_str::<Value>(&raw)
+        .ok()
+        .and_then(|v| v.get(anarchy.to_string())?.get("extra_margin_pct")?.as_f64())
+        .unwrap_or(0.0)
+}
+
 async fn spawn_worker_inner(
     state: Arc<Mutex<OrchState>>,
     go_tx: GoTx,
@@ -1322,7 +1423,13 @@ async fn spawn_worker_inner(
     }
 
     pretty_log::line(&boot.username, LineKind::Info, "spawn");
-    let mut child = Command::new(&bot_bin)
+    let extra_margin = experiment_extra_margin(boot.anarchy);
+    let mut cmd_bot = Command::new(&bot_bin);
+    cmd_bot.env("FARM_ANARCHY", boot.anarchy.to_string());
+    if extra_margin > 0.0 {
+        cmd_bot.env("BUY_EXTRA_MARGIN_PCT", extra_margin.to_string());
+    }
+    let mut child = cmd_bot
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -1351,6 +1458,30 @@ async fn spawn_worker_inner(
     {
         let mut g = state.lock().await;
         g.workers.insert(uname.clone(), WorkerHandle { child, stdin });
+    }
+
+    // Режим «перерыв в хабе»: привязанный бот, который стартует в перерыве, на анку не заходит.
+    {
+        let park = {
+            let mut g = state.lock().await;
+            let idx = g.bot_order.iter().position(|n| n == &uname);
+            let bound = g.bindings.get(&uname).copied() == Some(true);
+            let is_treas = g.treasurer_nick.as_deref() == Some(uname.as_str());
+            let early = g.early_wake.contains_key(&uname);
+            let want = g.schedule.park_in_hub()
+                && bound
+                && !is_treas
+                && !early
+                && idx.map_or(false, |i| !g.schedule.is_active(i, schedule::now_unix_ms()));
+            if want {
+                g.parked.insert(uname.clone());
+            }
+            want
+        };
+        if park {
+            info!("spawn {uname}: перерыв → сразу в хаб, на анку не захожу");
+            let _ = send_cmd_to(&state, &uname, &OrchCmd::Park { on: true }).await;
+        }
     }
 
     // B3. owes_treasurer — досылаем FlushToTreasurer.
@@ -1416,6 +1547,7 @@ async fn spawn_worker_inner(
                 warn!("{uname}: умер старый pid={child_pid:?}, живой pid={live_pid:?} — не трогаю");
                 (None, true)
             } else if let Some(mut wh) = g.workers.remove(&uname) {
+                g.parked.remove(&uname);
                 (
                     wh.child.try_wait().ok().flatten().and_then(|s| s.code()),
                     false,
@@ -1700,7 +1832,7 @@ async fn handle_worker_line(
                 // Но не для proxy_error: сбой прокси ничего не говорит о привязке аккаунта.
                 if kind != "proxy_error" {
                     g.bindings.insert(username.to_string(), false);
-                    save_bindings(&g.bindings_path, &g.bindings);
+                    save_binding(&g.bindings_path, username, false);
                 }
             }
             pretty_log::line_ex(
@@ -1741,7 +1873,7 @@ async fn handle_worker_line(
             let mut g = state.lock().await;
             // funauth_bind — привязки нет. Пишем в bindings.json.
             g.bindings.insert(username.to_string(), false);
-            save_bindings(&g.bindings_path, &g.bindings);
+            save_binding(&g.bindings_path, username, false);
             if let Some(wh) = g.workers.get_mut(username) {
                 let _ = wh.child.start_kill();
             }
@@ -1768,7 +1900,7 @@ async fn handle_worker_line(
             let mut g = state.lock().await;
             // funauth_2fa — привязки нет. Пишем в bindings.json.
             g.bindings.insert(username.to_string(), false);
-            save_bindings(&g.bindings_path, &g.bindings);
+            save_binding(&g.bindings_path, username, false);
             if let Some(wh) = g.workers.get_mut(username) {
                 let _ = wh.child.start_kill();
             }
@@ -1794,7 +1926,7 @@ async fn handle_worker_line(
                 let mut g = state.lock().await;
                 g.bindings.insert(username.to_string(), true);
                 let bp = g.bindings_path.clone();
-                save_bindings(&bp, &g.bindings);
+                save_binding(&bp, username, true);
 
                 let idx = g.bot_order.iter().position(|n| n == username);
                 let in_break = match idx {
@@ -1819,7 +1951,14 @@ async fn handle_worker_line(
                 info!(
                     "{username}: funauth_verified + сейчас перерыв → вырубаю сразу"
                 );
-                kill_worker(state, username).await;
+                let park = state.lock().await.schedule.park_in_hub();
+                if park {
+                    // Не отключаем: уходим в хаб и стоим.
+                    state.lock().await.parked.insert(username.to_string());
+                    let _ = send_cmd_to(state, username, &OrchCmd::Park { on: true }).await;
+                } else {
+                    kill_worker(state, username).await;
+                }
             }
         }
         "rent" => {
@@ -2209,6 +2348,7 @@ async fn push_presence(state: &Arc<Mutex<OrchState>>, _go_tx: &GoTx) -> Result<(
         let mut banned = Vec::new();
         let mut auth_faults = Vec::new();
         let mut roster = Vec::new();
+        let mut proxies: Vec<Value> = Vec::new();
         let mut pricing_n = 0u32;
         let mut live_n = 0u32;
         let mut hub_n = 0u32;
@@ -2297,6 +2437,10 @@ async fn push_presence(state: &Arc<Mutex<OrchState>>, _go_tx: &GoTx) -> Result<(
             let (mut ah_counts, mut inv_counts) = (HashMap::new(), HashMap::new());
             accumulate_presence_counts(&rt.items, &mut ah_counts);
             accumulate_presence_counts(&rt.inventory, &mut inv_counts);
+            if !rt.proxy.is_empty() {
+                // только хост: логин и пароль прокси Go не нужны
+                proxies.push(json!({ "slot": rt.cfg.username, "kind": "bot", "ip": proxy_host_hint(&rt.proxy) }));
+            }
             roster.push(json!({
                 "username": rt.cfg.username,
                 "anarchy": rt.cfg.anarchy,
@@ -2345,6 +2489,7 @@ async fn push_presence(state: &Arc<Mutex<OrchState>>, _go_tx: &GoTx) -> Result<(
             "banned": banned,
             "auth_faults": auth_faults,
             "clan_owners": owners_presence,
+            "proxies": proxies,
             "bots": roster,
             "config_bots": config_bots,
             "config_anarchy": config_anarchy,
@@ -2935,5 +3080,29 @@ mod rent_slots_tests {
         assert_eq!(slots_for(0, t), 5);
         assert_eq!(slots_for(t, t), 5); // аренда кончилась ровно сейчас
         assert_eq!(slots_for(t + 1, t), 10);
+    }
+}
+
+#[cfg(test)]
+mod bindings_file_tests {
+    use super::*;
+
+    #[test]
+    fn save_binding_keeps_other_orchestrators_entries() {
+        let dir = std::env::temp_dir().join(format!("bind-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("bindings.json");
+        std::fs::write(&p, r#"{"a502": true, "b503": true}"#).unwrap();
+        // оркестратор 508 загрузил файл раньше, потом 509 дописал свою запись
+        save_binding(&p, "c509", true);
+        // 508 пишет свою — чужие (в т.ч. новая c509) не пропадают
+        save_binding(&p, "d508", false);
+        let m = load_bindings(&p);
+        assert_eq!(m.get("a502"), Some(&true));
+        assert_eq!(m.get("c509"), Some(&true));
+        assert_eq!(m.get("d508"), Some(&false));
+        save_binding(&p, "d508", true);
+        assert_eq!(load_bindings(&p).get("d508"), Some(&true));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

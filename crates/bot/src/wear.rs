@@ -164,6 +164,8 @@ pub fn on_purchase_confirmed(state: &Arc<Mutex<BotState>>) -> bool {
 // ============================================================
 
 pub async fn equip_all(bot: &Client, state: &Arc<Mutex<BotState>>) {
+    // кликали ли по инвентарю игрока (id 0): после этого закрываем его, как клиент (E/Esc → ContainerClose 0)
+    let mut touched = false;
     for (armor_slot, expect, ru) in ARMOR_SLOTS {
         let Some(slots) = safe_inv::try_player_slots(bot) else {
             return;
@@ -187,6 +189,7 @@ pub async fn equip_all(bot: &Client, state: &Arc<Mutex<BotState>>) {
 
         info!("броня → надеваю позорный {ru} (слот {idx} → {armor_slot})");
         delay::rnd("HOTBAR_DELAY").await;
+        touched = true;
         inv.left_click(idx);
         delay::rnd("SELL_HOTBAR").await;
         inv.left_click(armor_slot);
@@ -225,6 +228,12 @@ pub async fn equip_all(bot: &Client, state: &Arc<Mutex<BotState>>) {
         } else {
             warn!("броня → {ru} не надет (повторю в следующей прогулке-продаже)");
         }
+    }
+
+    if touched {
+        // у живого игрока от последнего клика до закрытия ≈0,5 с (записи бот-вью)
+        tokio::time::sleep(std::time::Duration::from_millis(350 + rand::random::<u64>() % 500)).await;
+        safe_inv::close_player_inventory(bot);
     }
 
     refresh_missing(bot, state);

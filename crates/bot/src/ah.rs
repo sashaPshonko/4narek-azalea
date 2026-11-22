@@ -26,7 +26,10 @@ use crate::{
 };
 
 const FIRST_AH: usize = 0;
-const LAST_BUYABLE: usize = 17;
+/// Последний покупаемый слот АХ: 17 (2 строки) или до 35 при `AH_BUY_ROWS=4`.
+fn last_buyable() -> usize {
+    delay::ah_buy_rows() * 9 - 1
+}
 const SLOT_STORAGE: usize = 46;
 
 // Как JS AH_SLOT_RELOAD_MAIN / pickAhBrowseAction — всегда 50.
@@ -678,7 +681,7 @@ fn lot_score(margin: f64, held: u32) -> f64 {
 /// Когда бот собирается кликнуть: базовая задержка по ряду + случайные 0–600 мс, отсчёт от `seen_at`
 /// (момента, когда лот увидели). Решается ДО заявки в Go, чтобы Go знал, когда именно бот купит.
 fn plan_click_delay(slot: usize) -> Duration {
-    delay::ah_buy_delay(slot) + Duration::from_millis(rand::thread_rng().gen_range(0..=600u64))
+    delay::ah_buy_delay(slot)
 }
 
 /// Возвращает слот, подпись для лога и полную задержку до клика (от `seen_at`).
@@ -710,7 +713,7 @@ fn best_buy_slot(
     // (набор зашит в wear.rs), в Go не отправляется.
     if !wear_need.is_empty() {
         let wear_balance = state.lock().balance;
-        for slot in FIRST_AH..=LAST_BUYABLE {
+        for slot in FIRST_AH..=last_buyable() {
             let Some(data) = contents.get(slot).and_then(present) else {
                 continue;
             };
@@ -765,7 +768,7 @@ fn best_buy_slot(
     let mut cands: Vec<(usize, f64, f64, crate::item_parse::SlotInfo)> = Vec::new();
     let balance = state.lock().balance;
 
-    for slot in FIRST_AH..=LAST_BUYABLE {
+    for slot in FIRST_AH..=last_buyable() {
         let Some(data) =
             contents.get(slot).and_then(present)
         else {
@@ -1204,7 +1207,15 @@ fn claim_is_mine(items_buying: &Value, uuid: &str, username: &str) -> bool {
 /// за нами, `Ok(false)` — её в списке нет (ещё не вернулась от Go или список обновился); чужой
 /// владелец — это уже `Err`.
 /// Столько после выбора лота терпим чужого владельца в заявке (окно выбора в Go — 1 с + дорога).
-const OUTBID_GRACE: Duration = Duration::from_millis(1400);
+/// Должно закончиться раньше самого быстрого клика, иначе бот кликнет по лоту, который Go уже отдал
+/// соседу. Обычный темп: 1400 мс; быстрый (AH_BUY_TEMPO): мин. задержка − 100 мс, но не меньше 1050.
+const OUTBID_GRACE_MAX_MS: u64 = 1400;
+fn grace_for(min_click_ms: u64) -> Duration {
+    Duration::from_millis(min_click_ms.saturating_sub(100).clamp(1050, OUTBID_GRACE_MAX_MS))
+}
+fn outbid_grace() -> Duration {
+    grace_for(u64::from(delay::ah_buy_min_ms()))
+}
 
 fn check_lot(
     bot: &Client,
@@ -1243,7 +1254,7 @@ fn check_lot(
         if state::uuid_blocked_by_other(&s.items_buying, u, &boot.username) {
             // Go в течение ~1 с после первой заявки отдаёт лот тому, у кого накоплено меньше: ждём
             // его решения, прежде чем считать лот чужим.
-            if p.picked_at.elapsed() < OUTBID_GRACE {
+            if p.picked_at.elapsed() < outbid_grace() {
                 return Ok(false);
             }
             return Err("лот занял другой бот");
@@ -1280,8 +1291,7 @@ fn check_lot(
 }
 
 /// Ждём задержку перед покупкой, проверяя лот каждые 80–150 мс, и один раз ещё прямо перед кликом.
-/// Задержка = базовая из `ah_buy_delay` плюс случайный добавок 0–600 мс, чтобы боты не кликали
-/// в один момент.
+/// Задержка — из `ah_buy_delay` (случайная в диапазоне строки).
 async fn await_buy_clearance(
     bot: &Client,
     boot: &BotBoot,
@@ -1457,12 +1467,16 @@ mod outbid_timing_tests {
 
     #[test]
     fn click_comes_after_the_owner_is_final() {
-        let min_click = u64::from(delay::AH_BUY_DELAY_MIN_MS);
-        // окно + запас на дорогу бот→orch→Go→orch→бот
-        assert!(min_click >= GO_OUTBID_WINDOW_MS + 700, "клик раньше, чем закроется окно выбора");
-        // терпимость к чужому владельцу не дольше, чем бот вообще ждёт до клика
-        assert!(OUTBID_GRACE.as_millis() as u64 <= min_click);
-        assert!(OUTBID_GRACE.as_millis() as u64 > GO_OUTBID_WINDOW_MS);
+        // обычный темп и самый быстрый допустимый (AH_BUY_TEMPO не ниже пола)
+        for min_click in [u64::from(delay::AH_BUY_DELAY_MIN_MS), u64::from(delay::AH_BUY_DELAY_FLOOR_MS)] {
+            // окно + запас на дорогу бот→orch→Go→orch→бот
+            assert!(min_click >= GO_OUTBID_WINDOW_MS + 200, "клик раньше, чем закроется окно выбора");
+            let grace = grace_for(min_click).as_millis() as u64;
+            // терпимость к чужому владельцу кончается до клика, но позже окна выбора Go
+            assert!(grace < min_click, "grace {grace} >= клик {min_click}");
+            assert!(grace > GO_OUTBID_WINDOW_MS);
+        }
+        assert_eq!(grace_for(2000).as_millis(), 1400, "обычный темп не изменился");
     }
 }
 
