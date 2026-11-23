@@ -627,5 +627,29 @@
     "replaced_by": "noxejegetis (новый ник, без прогрева)",
     "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
     "reason": "Пункт 4.3.1 AB, 22.11.2026 (20:30 МСК), из питомника ~1,2 сут"
+  },
+  "pafoniwaga": {
+    "username": "pafoniwaga",
+    "anarchy": 503,
+    "banned_at": "1795435756",
+    "replaced_by": "rezudomakil (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 23.11.2026 15:09 МСК"
+  },
+  "SangeTop13": {
+    "username": "SangeTop13",
+    "anarchy": 507,
+    "banned_at": "1795447152",
+    "replaced_by": "tolegaxupe (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 23.11.2026 18:19 МСК"
+  },
+  "curevelozar": {
+    "username": "curevelozar",
+    "anarchy": 508,
+    "banned_at": "1795449000",
+    "replaced_by": "vanipecoxu (новый ник, без прогрева)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3.1 AB, 23.11.2026"
   }
 }
