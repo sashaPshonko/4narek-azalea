@@ -803,5 +803,105 @@
     "replaced_by": "dihumeqoso (новый ник, без прогрева)",
     "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
     "reason": "Пункт 4.3 (проверка модераторов), 24.11.2026 21:05 МСК"
+  },
+  "cidemeniko": {
+    "username": "cidemeniko",
+    "anarchy": 502,
+    "banned_at": "1795557764",
+    "replaced_by": "xevefevata (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 01:01:53 МСК",
+    "proxy_ip": "170.83.239.68:8000",
+    "tg_account": "333274a7-69a6-489d-a811-4fe16e632f78"
+  },
+  "subowefaj": {
+    "username": "subowefaj",
+    "anarchy": 502,
+    "banned_at": "1795560786",
+    "replaced_by": "vavasebisir (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 01:52:24 МСК",
+    "proxy_ip": "170.83.236.49:8000",
+    "tg_account": "8fc9c2a5-f3bc-4023-ba6f-53e99ecb7df3"
+  },
+  "wegudacik": {
+    "username": "wegudacik",
+    "anarchy": 503,
+    "banned_at": "1795559474",
+    "replaced_by": "bihimoqoc (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 01:31:06 МСК",
+    "proxy_ip": "170.83.238.254:8000",
+    "tg_account": "eab2753c-de5d-4487-889e-8fa696a8d6fc"
+  },
+  "tukocebuve": {
+    "username": "tukocebuve",
+    "anarchy": 503,
+    "banned_at": "1795552027",
+    "replaced_by": "julelatole (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 24.11.2026 23:26:37 МСК",
+    "proxy_ip": "170.83.237.71:8000",
+    "tg_account": "3a1348ea-9cf1-4931-ab90-6e429730f801"
+  },
+  "teninubafev": {
+    "username": "teninubafev",
+    "anarchy": 506,
+    "banned_at": "1795554134",
+    "replaced_by": "hunabikezej (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 00:01:52 МСК",
+    "proxy_ip": "170.83.238.50:8000",
+    "tg_account": "84159fcd-d628-479a-a3b6-b2cd7949b0ea"
+  },
+  "wakokevohe": {
+    "username": "wakokevohe",
+    "anarchy": 507,
+    "banned_at": "1795561127",
+    "replaced_by": "zafuhevoxuh (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 01:58:00 МСК",
+    "proxy_ip": "170.83.236.165:8000",
+    "tg_account": "2c5c2234-e8dd-4274-99c8-5dfc259abb73"
+  },
+  "guhejosavi": {
+    "username": "guhejosavi",
+    "anarchy": 508,
+    "banned_at": "1795554479",
+    "replaced_by": "barizegib (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 00:07:50 МСК",
+    "proxy_ip": "170.83.236.223:8000",
+    "tg_account": "262863bf-78a5-46cc-a6d9-288bc238efe4"
+  },
+  "dihumeqoso": {
+    "username": "dihumeqoso",
+    "anarchy": 508,
+    "banned_at": "1795551950",
+    "replaced_by": "tunuqucup (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 24.11.2026 23:24:53 МСК",
+    "proxy_ip": "170.83.239.158:8000",
+    "tg_account": "ac5e44d1-fcc9-400e-8310-3ecaeb4ff9b0"
+  },
+  "pokivogalat": {
+    "username": "pokivogalat",
+    "anarchy": 509,
+    "banned_at": "1795550653",
+    "replaced_by": "retipuwux (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 24.11.2026 23:03:27 МСК",
+    "proxy_ip": "170.83.237.44:8000",
+    "tg_account": "8621d51d-7e46-402f-a526-3e3e8e2d2067"
+  },
+  "temovagif": {
+    "username": "temovagif",
+    "anarchy": 509,
+    "banned_at": "1795558674",
+    "replaced_by": "qiqekumajiv (новый ник, без прогрева, новый прокси)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "Пункт 4.3 (проверка модераторов), 25.11.2026 01:17:12 МСК",
+    "proxy_ip": "170.83.238.202:8000",
+    "tg_account": "fae5854c-cd0b-487b-a160-599f5230d99b"
   }
 }
