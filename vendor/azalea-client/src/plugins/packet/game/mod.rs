@@ -1174,6 +1174,12 @@ impl GamePacketHandler<'_> {
         as_system::<(Commands, Query<&mut Inventory>)>(self.ecs, |(mut commands, mut query)| {
             let mut inventory = query.get_mut(self.player).unwrap();
 
+            // Номер клика живёт в этом пакете (как ScreenHandler.updateSlotStacks).
+            // Раньше для окна 0 он терялся: следующий клик уходил со старым номером, сервер его не принимал.
+            if p.container_id == inventory.id {
+                inventory.state_id = p.state_id;
+                inventory.carried = p.carried_item.clone();
+            }
             // container id 0 is always the player's inventory
             if p.container_id == 0 {
                 // this is just so it has the same type as the `else` block
@@ -1227,6 +1233,11 @@ impl GamePacketHandler<'_> {
                     // but that's not really necessary
                     if let Some(slot) = inventory.inventory_menu.slot_mut(p.slot.into()) {
                         *slot = p.item_stack.clone();
+                    }
+                    // Пока открыт свой инвентарь (окно 0), этот пакет — подтверждение клика.
+                    // Клиент записывает номер из него (setStackInSlot). Без этого второй перенос в хотбар отбрасывается.
+                    if inventory.id == 0 {
+                        inventory.state_id = p.state_id;
                     }
                 } else if p.container_id == inventory.id
                     && (p.container_id != 0 || !is_creative_mode_and_inventory_closed)
