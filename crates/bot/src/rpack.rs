@@ -75,10 +75,33 @@ struct Job {
 struct RpJobs(Vec<Job>);
 impl Resource for RpJobs {}
 
-/// Хеши паков, скачанных этим процессом (кэш клиента).
+/// Кэш паков клиента: хеши уже скачанных паков. Живёт на диске (`rp-cache/<ник>.txt`), как папка `downloads`
+/// у игрока: после перезахода/рестарта воркера пак повторно не качается.
 fn cache() -> &'static Mutex<HashSet<String>> {
     static C: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    C.get_or_init(|| Mutex::new(HashSet::new()))
+    C.get_or_init(|| {
+        let set = std::fs::read_to_string(cache_file())
+            .map(|s| s.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
+            .unwrap_or_default();
+        Mutex::new(set)
+    })
+}
+
+fn cache_file() -> std::path::PathBuf {
+    std::path::Path::new("rp-cache").join(format!("{}.txt", crate::boot::global().boot.username))
+}
+
+fn remember_pack(hash: String) {
+    let mut c = cache().lock();
+    if c.insert(hash) {
+        let mut lines: Vec<&String> = c.iter().collect();
+        lines.sort();
+        let body: String = lines.iter().map(|h| format!("{h}\n")).collect();
+        let _ = std::fs::create_dir_all("rp-cache");
+        if let Err(e) = std::fs::write(cache_file(), body) {
+            warn!("ресурспак: не записал кэш: {e}");
+        }
+    }
 }
 
 fn take_requests(mut events: MessageReader<ResourcePackEvent>, mut jobs: ResMut<RpJobs>) {
@@ -164,6 +187,7 @@ fn start_download(url: String, hash: String, accept_at: Instant, dl: Arc<Mutex<D
         std::thread::sleep(wait);
         if !hash.is_empty() && cache().lock().contains(&hash) {
             // пак уже в кэше клиента: проверка файла на диске, без сети
+            info!("ресурспак: уже в кэше, не качаю");
             let ms = rand::thread_rng().gen_range(500..=1200);
             dl.lock().done_at = Some(Instant::now() + Duration::from_millis(ms));
             return;
@@ -178,7 +202,10 @@ fn start_download(url: String, hash: String, accept_at: Instant, dl: Arc<Mutex<D
                 } else {
                     info!("ресурспак: скачан {} байт за {:.1} с", bytes.len(), started.elapsed().as_secs_f32());
                 }
-                cache().lock().insert(if hash.is_empty() { got } else { hash });
+                // в кэш — только целый пак (как у клиента: битый файл он не сохраняет)
+                if hash.is_empty() || got == hash {
+                    remember_pack(if hash.is_empty() { got } else { hash });
+                }
             }
             Err(e) => warn!("ресурспак: не скачал {url}: {e:#}"),
         }
