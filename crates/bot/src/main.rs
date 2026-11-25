@@ -976,7 +976,7 @@ fn handle_chat(bot: &Client, text: &str) {
         }
         let metas: Vec<listing::ListingMeta> = {
             let mut st = g.state.lock();
-            st.last_storage_reset = std::time::Instant::now();
+            st.mark_storage_reset();
             st.last_reset_click_at = None;
             st.need_reset = false;
             st.listings.all_metas()

@@ -52,17 +52,14 @@ pub async fn wait_new_window(state: &Arc<Mutex<BotState>>, old_id: i32, timeout:
 
 /// Ждёт момента клика по кнопке сброса (60 с + запас от последнего сброса). `false` — окно сменилось/закрылось.
 async fn wait_reset_moment(bot: &Client, state: &Arc<Mutex<BotState>>, win_id: i32) -> bool {
-    // Случайная добавка выбирается один раз на сброс: клик идёт через 60,5–62,8 с после прошлого, а не ровно в 60.
-    let jitter = Duration::from_millis(rand::Rng::gen_range(
-        &mut rand::thread_rng(),
-        crate::state::RESET_JITTER_MS,
-    ));
-    let first = crate::state::reset_click_wait(state.lock().last_storage_reset.elapsed(), jitter);
+    // Добавка 5–10 с уже в `reset_elapsed` (своя на цикл): клик через 65,25–70,25 с после прошлого сброса.
+    let jitter = Duration::ZERO;
+    let first = crate::state::reset_click_wait(state.lock().reset_elapsed(), jitter);
     if first.is_zero() {
         delay::rnd("GLASS").await;
     }
     loop {
-        let left = crate::state::reset_click_wait(state.lock().last_storage_reset.elapsed(), jitter);
+        let left = crate::state::reset_click_wait(state.lock().reset_elapsed(), jitter);
         if left.is_zero() {
             return crate::safe_inv::try_id(bot) == Some(win_id);
         }
@@ -171,7 +168,7 @@ async fn handle_storage_inner(
         }
 
         // На витрине нечего перевыставлять — сообщения не будет, считаем сброс выполненным.
-        state.lock().last_storage_reset = Instant::now();
+        state.lock().mark_storage_reset();
     }
 
     // ============================================================

@@ -77,6 +77,8 @@ pub struct BotState {
     /// Когда последний раз реально перевыставили витрину. Обновляется ТОЛЬКО по сообщению
     /// «[✔] Предметы успешно перевыставлены!» (main.rs), а не при решении о сбросе: клик мог не пройти.
     pub last_storage_reset: Instant,
+    /// Случайная добавка к 60 с до следующего перевыставления (5–10 с), своя на каждый цикл. См. `roll_reset_extra`.
+    pub reset_extra: Duration,
     /// Когда последний раз нажали кнопку сброса (ждём сообщение): не жмём повторно, пока оно не пришло.
     pub last_reset_click_at: Option<Instant>,
     /// container id окна хранилища, в котором бот сейчас работает (None = не в хранилище).
@@ -255,8 +257,13 @@ pub fn reset_due_soon(since_last_reset: Duration, since_click: Option<Duration>)
     since_last_reset + RESET_PRE_OPEN >= RESET_PERIOD && since_click.map_or(true, |c| c >= RESET_RETRY)
 }
 
-/// Случайная добавка к моменту клика (мс): чтобы сброс шёл не ровно по 60 с, а с разбросом ~0,3–2,5 с.
-pub const RESET_JITTER_MS: std::ops::RangeInclusive<u64> = 300..=2500;
+/// Добавка к 60 с кулдауна перевыставления (мс), только в большую сторону. Раньше бот жал кнопку через 0,25–2,5 с
+/// после конца кулдауна весь день подряд — слишком ровно. Теперь через 5–10 с (своя случайная добавка на каждый цикл).
+pub const RESET_EXTRA_MS: std::ops::RangeInclusive<u64> = 5000..=10000;
+
+pub fn roll_reset_extra() -> Duration {
+    Duration::from_millis(rand::Rng::gen_range(&mut rand::thread_rng(), RESET_EXTRA_MS))
+}
 
 /// Сколько ещё ждать до момента клика по кнопке сброса (0 — можно кликать). `jitter` — случайная добавка.
 pub fn reset_click_wait(since_last_reset: Duration, jitter: Duration) -> Duration {
@@ -329,6 +336,7 @@ impl BotState {
             has_dangerous_trash: false,
 
             last_storage_reset: Instant::now(),
+            reset_extra: roll_reset_extra(),
             last_reset_click_at: None,
             storage_win_id: None,
 
@@ -627,23 +635,35 @@ pub fn uuid_blocked_by_other(
 }
 
 impl BotState {
+    /// Время с последнего перевыставления минус добавка этого цикла: все проверки по 60 с считают от него,
+    /// так что заход в хранилище, клик и блок продажи сдвигаются на добавку вместе.
+    pub fn reset_elapsed(&self) -> Duration {
+        self.last_storage_reset.elapsed().saturating_sub(self.reset_extra)
+    }
+
+    /// Перевыставление выполнено: отсчёт заново и новая добавка.
+    pub fn mark_storage_reset(&mut self) {
+        self.last_storage_reset = Instant::now();
+        self.reset_extra = roll_reset_extra();
+    }
+
     pub fn reset_due_now(&self) -> bool {
         reset_due(
-            self.last_storage_reset.elapsed(),
+            self.reset_elapsed(),
             self.last_reset_click_at.map(|t| t.elapsed()),
         )
     }
 
     pub fn reset_soon_now(&self) -> bool {
         reset_due_soon(
-            self.last_storage_reset.elapsed(),
+            self.reset_elapsed(),
             self.last_reset_click_at.map(|t| t.elapsed()),
         )
     }
 
     pub fn sale_blocked_by_reset_now(&self) -> bool {
         sale_blocked_by_reset_lots(
-            self.last_storage_reset.elapsed(),
+            self.reset_elapsed(),
             self.last_reset_click_at.map(|t| t.elapsed()),
             self.listings.all_metas().len(),
         )
@@ -656,6 +676,21 @@ mod reset_timing_tests {
 
     fn s(n: u64) -> Duration {
         Duration::from_secs(n)
+    }
+
+    #[test]
+    fn reset_extra_is_5_to_10_seconds_and_only_delays() {
+        for _ in 0..200 {
+            let e = roll_reset_extra();
+            assert!(e >= Duration::from_secs(5) && e <= Duration::from_secs(10), "{e:?}");
+        }
+        // с добавкой 7 с: на 60 с реального времени эффективно прошло 53 с — заходить рано
+        let real = s(60);
+        let extra = s(7);
+        assert!(!reset_due_soon(real.saturating_sub(extra), None));
+        // на 63 с реального времени (эффективно 56) — пора заходить, клик через 4,25 с, то есть на 67,25 с
+        assert!(reset_due_soon(s(63).saturating_sub(extra), None));
+        assert_eq!(reset_click_wait(s(63).saturating_sub(extra), Duration::ZERO), Duration::from_millis(4250));
     }
 
     #[test]
