@@ -164,7 +164,7 @@ fn start_download(url: String, hash: String, accept_at: Instant, dl: Arc<Mutex<D
         std::thread::sleep(wait);
         if !hash.is_empty() && cache().lock().contains(&hash) {
             // пак уже в кэше клиента: проверка файла на диске, без сети
-            let ms = rand::thread_rng().gen_range(40..=180);
+            let ms = rand::thread_rng().gen_range(500..=1200);
             dl.lock().done_at = Some(Instant::now() + Duration::from_millis(ms));
             return;
         }
@@ -182,7 +182,10 @@ fn start_download(url: String, hash: String, accept_at: Instant, dl: Arc<Mutex<D
             }
             Err(e) => warn!("ресурспак: не скачал {url}: {e:#}"),
         }
-        dl.lock().done_at = Some(Instant::now());
+        // Скачивание не бывает мгновенным: даже кэш или быстрая ошибка занимают не меньше полсекунды
+        // между «принял» и «скачан».
+        let floor = Duration::from_millis(rand::thread_rng().gen_range(500..=1500));
+        dl.lock().done_at = Some(Instant::now().max(started + floor));
     });
 }
 
