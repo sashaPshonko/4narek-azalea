@@ -483,10 +483,8 @@ pub async fn handle_captcha_login(
         let ok = wait_verdict(Duration::from_secs(4)).await;
         if ok {
             info!("капча принята {pred}");
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            crate::cmd::say(bot, format!("/reg {password}"));
-            tokio::time::sleep(Duration::from_millis(600)).await;
-            crate::cmd::say(bot, format!("/l {password}"));
+            // /reg или /l — по подсказке сервера; если она пришла во время капчи, отвечаем на неё сейчас
+            crate::auth::after_captcha(bot, password);
             return Ok(());
         }
         min_map_seq = seq_at_capture;

@@ -81,7 +81,7 @@ impl ConfigPacketHandler<'_> {
     }
 
     pub fn custom_payload(&mut self, p: &ClientboundCustomPayload) {
-        debug!("Got custom payload packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): плагин-канал {}", p.identifier);
     }
 
     pub fn disconnect(&mut self, p: &ClientboundDisconnect) {
@@ -179,7 +179,7 @@ impl ConfigPacketHandler<'_> {
     }
 
     pub fn cookie_request(&mut self, p: &ClientboundCookieRequest) {
-        debug!("Got cookie request packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): запрос cookie {}", p.key);
         as_system::<Commands>(self.ecs, |mut commands| {
             commands.trigger(RequestCookieEvent {
                 entity: self.player,
@@ -188,7 +188,7 @@ impl ConfigPacketHandler<'_> {
         });
     }
     pub fn store_cookie(&mut self, p: &ClientboundStoreCookie) {
-        debug!("Got store cookie packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): сохранить cookie {}", p.key);
         as_system::<Commands>(self.ecs, |mut commands| {
             commands.trigger(StoreCookieEvent {
                 entity: self.player,
@@ -203,7 +203,7 @@ impl ConfigPacketHandler<'_> {
     }
 
     pub fn transfer(&mut self, p: &ClientboundTransfer) {
-        debug!("Got transfer packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): transfer {p:?}");
     }
 
     pub fn select_known_packs(&mut self, p: &ClientboundSelectKnownPacks) {
@@ -227,21 +227,21 @@ impl ConfigPacketHandler<'_> {
         });
     }
 
-    pub fn server_links(&mut self, p: &ClientboundServerLinks) {
-        debug!("Got server links packet {p:?}");
+    pub fn server_links(&mut self, _p: &ClientboundServerLinks) {
+        tracing::info!(target: "probe", "⚑ сервер (config): ссылки сервера");
     }
 
-    pub fn custom_report_details(&mut self, p: &ClientboundCustomReportDetails) {
-        debug!("Got custom report details packet {p:?}");
+    pub fn custom_report_details(&mut self, _p: &ClientboundCustomReportDetails) {
+        tracing::info!(target: "probe", "⚑ сервер (config): custom report details");
     }
 
     pub fn clear_dialog(&mut self, p: &ClientboundClearDialog) {
         debug!("Got clear dialog packet {p:?}");
     }
     pub fn show_dialog(&mut self, p: &ClientboundShowDialog) {
-        debug!("Got show dialog packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): диалог {}", crate::short_debug(p));
     }
     pub fn code_of_conduct(&mut self, p: &ClientboundCodeOfConduct) {
-        debug!("Got code of conduct packet {p:?}");
+        tracing::info!(target: "probe", "⚑ сервер (config): правила сервера (code of conduct) {}", crate::short_debug(p));
     }
 }

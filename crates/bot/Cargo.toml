@@ -28,4 +28,5 @@ azalea-chat = "=0.15.1"
 azalea-client = "=0.15.1"
 azalea-registry = "=0.15.1"
 base64 = "0.22"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "socks"] }
+sha1 = "0.10"

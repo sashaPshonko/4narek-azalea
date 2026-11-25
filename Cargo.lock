@@ -830,6 +830,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "simdnbt",
  "socks5-impl",
  "tokio",

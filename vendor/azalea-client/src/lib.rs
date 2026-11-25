@@ -27,3 +27,9 @@ pub use client::{
 pub use events::Event;
 pub use movement::{StartSprintEvent, StartWalkEvent};
 pub use plugins::*;
+
+/// Короткий Debug для журнала служебных пакетов (target "probe"): не больше 400 символов.
+pub fn short_debug<T: std::fmt::Debug>(v: &T) -> String {
+    let s = format!("{v:?}");
+    if s.chars().count() > 400 { format!("{}…", s.chars().take(400).collect::<String>()) } else { s }
+}

@@ -44,6 +44,7 @@
 mod afk;
 mod ah;
 mod anarchy;
+mod auth;
 mod boot;
 mod captcha;
 mod cmd;
@@ -56,6 +57,7 @@ mod listing;
 mod money;
 mod owner;
 mod rent;
+mod rpack;
 mod safe_inv;
 mod sell;
 mod state;
@@ -74,6 +76,7 @@ use std::{
     time::Duration,
 };
 
+use azalea::app::PluginGroup;
 use azalea::{
     prelude::*,
     protocol::{connect::Proxy, packets::game::ClientboundGamePacket},
@@ -227,7 +230,16 @@ async fn main() -> anyhow::Result<()> {
     let opts = JoinOpts::new().server_proxy(proxy);
     let server = boot.server.clone();
 
-    ClientBuilder::new()
+    // Встроенный ответ azalea на ресурспак («принял»+«загружен» мгновенно, без скачивания) заменён
+    // ванильным порядком из rpack.rs.
+    ClientBuilder::new_without_plugins()
+        .add_plugins(azalea::DefaultPlugins)
+        .add_plugins(
+            azalea::bot::DefaultBotPlugins
+                .build()
+                .disable::<azalea::accept_resource_packs::AcceptResourcePacksPlugin>(),
+        )
+        .add_plugins(rpack::VanillaResourcePackPlugin)
         .set_handler(handle)
         .start_with_opts(account, server.as_str(), opts)
         .await;
@@ -266,6 +278,7 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
         // частицы minimal, skinParts 127, правая рука). Должны уйти ДО входа в игру,
         // поэтому ставим на Init.
         Event::Init => {
+            auth::on_new_connection();
             bot.set_client_information(azalea::ClientInformation {
                 language: "ru_ru".to_owned(),
                 view_distance: 8,
@@ -281,9 +294,8 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
             *g.bot_client.lock() = Some(bot.clone());
 
             let boot = g.boot.clone();
-            info!("логин → /reg + /l");
-            crate::cmd::say(&bot, format!("/reg {}", boot.password));
-            crate::cmd::say(&bot, format!("/l {}", boot.password));
+            // /reg и /l — только по подсказке сервера (auth.rs); здесь лишь запасной /l, если подсказки не будет
+            auth::on_spawn(&bot, &boot.password);
             state.phase.store(1, Ordering::SeqCst);
 
             let bot2 = bot.clone();
@@ -562,6 +574,7 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
             }
         }
         Event::Packet(packet) => {
+            rpack::log_server_probe(packet.as_ref());
             match packet.as_ref() {
             ClientboundGamePacket::OpenScreen(p) => {
                 g.state.lock().last_window_title = p.title.to_string();
@@ -597,6 +610,7 @@ async fn handle(bot: Client, event: Event, state: HandleState) -> anyhow::Result
         }
         Event::ConnectionFailed(err) => health::on_connection_failed(err),
         Event::Disconnect(reason) => {
+            auth::on_new_connection();
             g.state.lock().sidebar_balance = None;
             let r = format!("{reason:?}");
             warn!("disconnect {r}");
@@ -860,17 +874,11 @@ fn handle_chat(bot: &Client, text: &str) {
     } else if low.contains("капчу неправильно") {
         g.state.lock().captcha_wrong = true;
         emit_text(&format!("{user} - капча неправильно"));
-    } else if low.contains("зарегистрируйтесь") || text.contains("/reg <") {
-        if g.state.lock().captcha_busy {
-            return;
-        }
-        crate::cmd::say(bot, format!("/reg {pass}"));
-        crate::cmd::say(bot, format!("/l {pass}"));
-    } else if low.contains("авторизируйтесь") || text.contains("/l <") || text.contains("/login") {
-        if g.state.lock().captcha_busy {
-            return;
-        }
-        crate::cmd::say(bot, format!("/l {pass}"));
+    } else if auth::is_authed_text(text) {
+        auth::on_authed();
+    } else if let Some(kind) = auth::classify(text) {
+        let busy = g.state.lock().captcha_busy;
+        auth::on_prompt(bot, kind, pass, busy);
     } else if low.contains("вы забанены") {
         mark_banned(text);
     } else if is_wrong_password_text(text) {
