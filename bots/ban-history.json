@@ -1373,5 +1373,15 @@
     "reason": "Пункт 4.5, 25.11.2026 21:33:33 МСК",
     "proxy_ip": "170.83.238.246:8000",
     "tg_account": "cb9578bb-4e96-4ba3-bc35-15b72fc92ecd"
+  },
+  "losopavama": {
+    "username": "losopavama",
+    "anarchy": 507,
+    "banned_at": "1795665169",
+    "replaced_by": "zozirotita (новый ник, без прогрева, прокси НЕ менялся)",
+    "schedule": "v9 + джиттер ±20 мин, перерыв в хабе",
+    "reason": "не бан: TG ника удалён (bind_unconfirmed 20.11), 2FA не выключить — вход невозможен с 22.11",
+    "proxy_ip": "170.83.237.241:8000",
+    "tg_account": "58bc99bd-554d-443a-b9ee-822269d7b9e9"
   }
 }
